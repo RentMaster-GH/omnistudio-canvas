@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as fabric from 'fabric';
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
+import { jsPDF } from 'jspdf';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
   Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
   ChevronRight, Eye, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
-  Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown
+  Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown, FileDown
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -189,6 +190,55 @@ export default function CanvasStudio() {
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
     setPageNum(newPage);
     await renderPdfPageOntoCanvas(pdfDoc, newPage);
+  };
+
+  // --- MULTI-PAGE PDF EXPORT ENGINE ---
+  const exportCompletePdf = async () => {
+    if (!pdfDoc || !fabricCanvas) {
+      alert('Please upload a PDF document first to export as PDF!');
+      return;
+    }
+
+    setStatus('📄 Compiling all edited pages into downloadable PDF...');
+
+    try {
+      const pdfExport = new jsPDF({
+        orientation: fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [fabricCanvas.width, fabricCanvas.height],
+      });
+
+      const currentPage = pageNum;
+
+      for (let i = 1; i <= totalPages; i++) {
+        setStatus(`📄 Rendering & baking Page ${i} of ${totalPages}...`);
+        await renderPdfPageOntoCanvas(pdfDoc, i);
+
+        // Capture rendered canvas frame as PNG
+        const pageDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
+
+        if (i > 1) {
+          pdfExport.addPage(
+            [fabricCanvas.width, fabricCanvas.height], 
+            fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait'
+          );
+        }
+
+        pdfExport.addImage(pageDataUrl, 'PNG', 0, 0, fabricCanvas.width, fabricCanvas.height);
+      }
+
+      // Restore original active page view
+      await renderPdfPageOntoCanvas(pdfDoc, currentPage);
+      setPageNum(currentPage);
+
+      // Save complete compiled PDF file
+      pdfExport.save(`omnistudio-edited-document-${Date.now()}.pdf`);
+      setStatus('✅ Multi-Page PDF exported and downloaded successfully!');
+      alert('🎉 Your complete edited PDF document has been downloaded!');
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      setStatus(`Error exporting PDF: ${err.message}`);
+    }
   };
 
   const addText = () => {
@@ -481,7 +531,7 @@ export default function CanvasStudio() {
       {/* SECONDARY TOOL RIBBON (Contextual to Selected Portal) */}
       <div style={{ height: '54px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 15px', justifyContent: 'space-between', zIndex: 30 }}>
         
-        {/* PDF EDITING TOOLS RIBBON WITH HIGH-VISIBILITY COLOR-CODED WHITE FONT BUTTONS */}
+        {/* PDF EDITING TOOLS RIBBON */}
         {activePortal === 'pdf' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -565,7 +615,33 @@ export default function CanvasStudio() {
               </div>
             </div>
 
-            <button onClick={exportCanvasImage} style={prominentBtnStyle('#10b981')}><Download size={15} /> Export Page</button>
+            {/* HEADER EXPORT ACTIONS */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button onClick={exportCanvasImage} style={prominentBtnStyle('#10b981')}><Download size={15} /> Export Page PNG</button>
+              
+              {/* EXPORT COMPLETE MULTI-PAGE PDF BUTTON */}
+              <button 
+                title="Export Complete Multi-Page PDF Document" 
+                onClick={exportCompletePdf} 
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 10px',
+                  backgroundColor: '#8b5cf6',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '3px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                }}
+              >
+                <FileDown size={13} /> Export Complete PDF
+              </button>
+            </div>
           </div>
         )}
 
