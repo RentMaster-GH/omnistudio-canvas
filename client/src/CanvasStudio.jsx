@@ -7,7 +7,8 @@ import {
   Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser,
   ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
-  AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical
+  AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  MoveRight, Triangle, Activity
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -24,13 +25,15 @@ export default function CanvasStudio() {
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready');
 
+  // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight'
   const [activeTool, setActiveTool] = useState('select');
   const [activeDropdown, setActiveDropdown] = useState(null);
 
+  // System State Management (Undo / Redo Stack)
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
-  // Comprehensive Text Inspector State
+  // Text Inspector State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
   const [fontSizeVal, setFontSizeVal] = useState(24);
   const [textColorVal, setTextColorVal] = useState('#0f172a');
@@ -41,6 +44,7 @@ export default function CanvasStudio() {
   const [isUnderlineVal, setIsUnderlineVal] = useState(false);
   const [textAlignVal, setTextAlignVal] = useState('left');
 
+  // PDF Preview & Page Thumbnail State
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pageNum, setPageNum] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -53,11 +57,38 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
+  // Panning State for Hand Tool
+  const isPanningRef = useRef(false);
+  const lastPosRef = useRef({ x: 0, y: 0 });
+
+  // Initialize Canvas
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
       width: 820,
       height: 480,
       backgroundColor: '#ffffff',
+    });
+
+    // Panning & Selection Event Listeners
+    canvas.on('mouse:down', (opt) => {
+      if (canvas.defaultCursor === 'grab') {
+        isPanningRef.current = true;
+        lastPosRef.current = { x: opt.e.clientX, y: opt.e.clientY };
+      }
+    });
+
+    canvas.on('mouse:move', (opt) => {
+      if (isPanningRef.current) {
+        const vpt = canvas.viewportTransform;
+        vpt[4] += opt.e.clientX - lastPosRef.current.x;
+        vpt[5] += opt.e.clientY - lastPosRef.current.y;
+        canvas.requestRenderAll();
+        lastPosRef.current = { x: opt.e.clientX, y: opt.e.clientY };
+      }
+    });
+
+    canvas.on('mouse:up', () => {
+      isPanningRef.current = false;
     });
 
     canvas.on('selection:created', (e) => updateInspectorFromSelection(e.selected[0]));
@@ -82,6 +113,7 @@ export default function CanvasStudio() {
     setTextAlignVal(obj.textAlign || 'left');
   };
 
+  // --- UNDO / REDO COMMAND STACK ENGINE ---
   const saveState = (targetCanvas = fabricCanvas) => {
     if (!targetCanvas) return;
     const json = JSON.stringify(targetCanvas.toJSON());
@@ -140,6 +172,7 @@ export default function CanvasStudio() {
     saveState();
   };
 
+  // --- TOOL MODE SWITCHER (HAND / PAN vs SELECT vs DRAW) ---
   const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
     setActiveTool(mode);
@@ -168,6 +201,7 @@ export default function CanvasStudio() {
     }
   };
 
+  // --- PDF NAVIGATOR & THUMBNAIL PANEL ENGINE ---
   const handlePdfDocumentUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -249,6 +283,7 @@ export default function CanvasStudio() {
     await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
+  // --- ANNOTATION & EDITING ENGINE TOOLS ---
   const addText = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -270,6 +305,7 @@ export default function CanvasStudio() {
     saveState();
   };
 
+  // Eraser Tools
   const addWhiteoutEraser = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -295,6 +331,7 @@ export default function CanvasStudio() {
     saveState();
   };
 
+  // Stamp Watermark Matrix
   const addStamp = (type) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -304,6 +341,8 @@ export default function CanvasStudio() {
 
     if (type === 'CONFIDENTIAL') { textStr = 'CONFIDENTIAL'; color = '#ef4444'; }
     if (type === 'DRAFT') { textStr = 'DRAFT'; color = '#0284c7'; }
+    if (type === 'SIGN') { textStr = 'SIGN HERE'; color = '#f59e0b'; }
+    if (type === 'COMPLETED') { textStr = 'COMPLETED'; color = '#8b5cf6'; }
 
     const text = new fabric.Text(textStr, { fontSize: 20, fontWeight: 'bold', fill: color, left: 15, top: 10 });
     const rect = new fabric.Rect({ width: text.width + 30, height: text.height + 20, fill: 'rgba(255, 255, 255, 0.9)', stroke: color, strokeWidth: 3, rx: 6, ry: 6 });
@@ -314,6 +353,7 @@ export default function CanvasStudio() {
     saveState();
   };
 
+  // Vector Shape Annotation Suite
   const addShape = (shapeType) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -325,7 +365,17 @@ export default function CanvasStudio() {
       shapeObj = new fabric.Ellipse({ left: 200, top: 200, rx: 60, ry: 40, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
     } else if (shapeType === 'line') {
       shapeObj = new fabric.Line([50, 50, 200, 50], { left: 200, top: 200, stroke: '#0284c7', strokeWidth: 3 });
+    } else if (shapeType === 'arrow') {
+      const line = new fabric.Line([50, 50, 200, 50], { stroke: '#0284c7', strokeWidth: 3 });
+      const head = new fabric.Triangle({ width: 15, height: 15, fill: '#0284c7', left: 200, top: 43, angle: 90 });
+      shapeObj = new fabric.Group([line, head], { left: 200, top: 200 });
+    } else if (shapeType === 'polygon') {
+      shapeObj = new fabric.Triangle({ left: 200, top: 200, width: 100, height: 90, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
+    } else if (shapeType === 'polyline') {
+      const pathPoints = 'M 0 0 L 50 40 L 100 10 L 150 50';
+      shapeObj = new fabric.Path(pathPoints, { left: 200, top: 200, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
     } else if (shapeType === 'cloud') {
+      // PDF Revision Cloud Polygon
       const cloudPath = 'M 10 30 Q 15 10, 35 15 Q 55 5, 70 25 Q 90 25, 90 45 Q 95 65, 75 75 Q 65 95, 45 85 Q 25 95, 15 75 Q -5 65, 5 45 Q -5 25, 10 30 Z';
       shapeObj = new fabric.Path(cloudPath, { left: 200, top: 200, fill: 'transparent', stroke: '#ef4444', strokeWidth: 3, scaleX: 1.5, scaleY: 1.5 });
     }
@@ -567,7 +617,7 @@ export default function CanvasStudio() {
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Hand / Pan Tool (Click & Drag View)" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -609,10 +659,13 @@ export default function CanvasStudio() {
                     <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={13} color="#10b981" /> APPROVED Stamp</button>
                     <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={13} color="#ef4444" /> CONFIDENTIAL Stamp</button>
                     <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={13} color="#0284c7" /> DRAFT Stamp</button>
+                    <button onClick={() => addStamp('SIGN')} style={dropdownItemStyle}><Stamp size={13} color="#f59e0b" /> SIGN HERE Stamp</button>
+                    <button onClick={() => addStamp('COMPLETED')} style={dropdownItemStyle}><Stamp size={13} color="#8b5cf6" /> COMPLETED Stamp</button>
                   </div>
                 )}
               </div>
 
+              {/* Vector Shape Annotation Suite Submenu */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
                   <Square size={14} /> Shapes <ChevronDown size={11} />
@@ -622,7 +675,10 @@ export default function CanvasStudio() {
                     <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
                     <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
                     <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
-                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud</button>
+                    <button onClick={() => addShape('arrow')} style={dropdownItemStyle}><MoveRight size={13} /> Arrow Connector</button>
+                    <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
+                    <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
+                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
                   </div>
                 )}
               </div>
@@ -729,7 +785,7 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Align Text Top, Middle, Bottom (Corrected Lucide icons) */}
+        {/* Align Text Top, Middle, Bottom */}
         <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignStartVertical size={13} /></button>
         <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignCenterVertical size={13} /></button>
         <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignEndVertical size={13} /></button>
