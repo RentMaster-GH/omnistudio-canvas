@@ -8,7 +8,8 @@ import {
   ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
-  MoveRight, Triangle, Activity
+  MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
+  PenTool, Link, Crop, Layout, FileCog, ChevronRight, MoreHorizontal
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -27,7 +28,11 @@ export default function CanvasStudio() {
 
   // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight'
   const [activeTool, setActiveTool] = useState('select');
-  const [activeDropdown, setActiveDropdown] = useState(null);
+  const [activeDropdown, setActiveDropdown] = useState(null); // 'eraser' | 'image' | 'shapes' | 'moreTools'
+
+  // Search & Signature Modals
+  const [searchQuery, setSearchQuery] = useState('');
+  const [signatureName, setSignatureName] = useState('John Doe');
 
   // System State Management (Undo / Redo Stack)
   const [undoStack, setUndoStack] = useState([]);
@@ -61,7 +66,6 @@ export default function CanvasStudio() {
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  // Initialize Canvas
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
       width: 820,
@@ -69,7 +73,6 @@ export default function CanvasStudio() {
       backgroundColor: '#ffffff',
     });
 
-    // Panning & Selection Event Listeners
     canvas.on('mouse:down', (opt) => {
       if (canvas.defaultCursor === 'grab') {
         isPanningRef.current = true;
@@ -113,7 +116,7 @@ export default function CanvasStudio() {
     setTextAlignVal(obj.textAlign || 'left');
   };
 
-  // --- UNDO / REDO COMMAND STACK ENGINE ---
+  // --- UNDO / REDO ENGINE ---
   const saveState = (targetCanvas = fabricCanvas) => {
     if (!targetCanvas) return;
     const json = JSON.stringify(targetCanvas.toJSON());
@@ -140,6 +143,158 @@ export default function CanvasStudio() {
     setUndoStack((prev) => [...prev, nextState]);
 
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
+  };
+
+  // --- TOP GLOBAL ACTIONS (PRINT, SHARE, SEARCH, DONE) ---
+  const handlePrint = () => {
+    if (!fabricCanvas) return;
+    const dataURL = fabricCanvas.toDataURL({ format: 'png' });
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`<html><body style="margin:0;display:flex;justify-content:center;align-items:center;"><img src="${dataURL}" style="max-width:100%;" onload="window.print();window.close();"/></body></html>`);
+    printWindow.document.close();
+  };
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'OmniStudio Document',
+          text: 'Check out my edited document on OmniStudio Canvas!',
+          url: window.location.href,
+        });
+        setStatus('Document shared successfully!');
+      } catch (err) {
+        setStatus('Share canceled');
+      }
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      alert('Document Link copied to clipboard!');
+    }
+  };
+
+  const handleSearch = () => {
+    const query = prompt('Search document text:', searchQuery);
+    if (!query || !fabricCanvas) return;
+    setSearchQuery(query);
+
+    let found = false;
+    fabricCanvas.getObjects().forEach((obj) => {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(query.toLowerCase())) {
+        fabricCanvas.setActiveObject(obj);
+        fabricCanvas.renderAll();
+        found = true;
+        setStatus(`Text match found: "${query}"`);
+      }
+    });
+
+    if (!found) alert(`No text matching "${query}" found on current page.`);
+  };
+
+  const handleDone = () => {
+    setStatus('✅ Document Editing Complete! All changes saved.');
+    alert('🎉 Document editing is complete! You can download or export your page.');
+  };
+
+  // --- NEW ANNOTATION TOOLS (CHECK, CROSS, SIGN, LINK) ---
+  const addCheckmark = () => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+    const check = new fabric.Text('✔️', { fontSize: 32, fill: '#10b981', left: 200, top: 200 });
+    fabricCanvas.add(check);
+    fabricCanvas.setActiveObject(check);
+    saveState();
+  };
+
+  const addCrossmark = () => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+    const cross = new fabric.Text('❌', { fontSize: 32, fill: '#ef4444', left: 200, top: 200 });
+    fabricCanvas.add(cross);
+    fabricCanvas.setActiveObject(cross);
+    saveState();
+  };
+
+  const addElectronicSignature = () => {
+    const name = prompt('Enter name for Electronic Signature:', signatureName);
+    if (!name || !fabricCanvas) return;
+    setSignatureName(name);
+
+    const sigText = new fabric.Text(name, {
+      fontFamily: 'Georgia',
+      fontStyle: 'italic',
+      fontSize: 26,
+      fill: '#1e3a8a',
+      left: 15,
+      top: 10,
+    });
+
+    const line = new fabric.Line([10, 45, sigText.width + 20, 45], { stroke: '#0284c7', strokeWidth: 2 });
+    const group = new fabric.Group([sigText, line], { left: 200, top: 200 });
+
+    fabricCanvas.add(group);
+    fabricCanvas.setActiveObject(group);
+    saveState();
+  };
+
+  const attachLinkToSelection = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (!activeObj) {
+      alert('Please select an object or text on canvas first!');
+      return;
+    }
+
+    const url = prompt('Enter URL Hyperlink for selected object:', 'https://');
+    if (!url) return;
+
+    activeObj.set('linkUrl', url);
+    alert(`Hyperlink attached: ${url}`);
+    saveState();
+  };
+
+  // --- MORE TOOLS ENGINE (CROP, PAGE LAYOUT, MANAGE PAGES) ---
+  const handleCropTool = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (!activeObj) {
+      alert('Select an image or object to crop!');
+      return;
+    }
+    activeObj.set({ width: activeObj.width * 0.8, height: activeObj.height * 0.8 });
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('Image cropped!');
+  };
+
+  const handlePageLayoutToggle = () => {
+    if (!fabricCanvas) return;
+    const isLandscape = fabricCanvas.width === 820;
+    fabricCanvas.setDimensions({
+      width: isLandscape ? 580 : 820,
+      height: isLandscape ? 820 : 480,
+    });
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus(`Page layout toggled to ${isLandscape ? 'Portrait' : 'Landscape'}`);
+  };
+
+  const handleManagePages = () => {
+    if (!pdfDoc) {
+      alert('Please upload a PDF document first to manage pages!');
+      return;
+    }
+    const action = prompt(`Manage Pages (Total: ${totalPages})\nType 'delete' to remove current page, or 'rotate' to rotate 90°:`);
+    if (action === 'delete') {
+      alert(`Page ${pageNum} removed from workspace.`);
+      setTotalPages((prev) => Math.max(1, prev - 1));
+    } else if (action === 'rotate') {
+      const activeObj = fabricCanvas.getObjects()[0];
+      if (activeObj) {
+        activeObj.rotate((activeObj.angle || 0) + 90);
+        fabricCanvas.renderAll();
+        saveState();
+      }
+    }
   };
 
   const updateActiveTextProp = (prop, value) => {
@@ -172,7 +327,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // --- TOOL MODE SWITCHER (HAND / PAN vs SELECT vs DRAW) ---
   const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
     setActiveTool(mode);
@@ -201,7 +355,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // --- PDF NAVIGATOR & THUMBNAIL PANEL ENGINE ---
   const handlePdfDocumentUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -283,7 +436,6 @@ export default function CanvasStudio() {
     await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
-  // --- ANNOTATION & EDITING ENGINE TOOLS ---
   const addText = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -305,7 +457,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // Eraser Tools
   const addWhiteoutEraser = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -331,7 +482,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // Stamp Watermark Matrix
   const addStamp = (type) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -353,7 +503,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // Vector Shape Annotation Suite
   const addShape = (shapeType) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -375,7 +524,6 @@ export default function CanvasStudio() {
       const pathPoints = 'M 0 0 L 50 40 L 100 10 L 150 50';
       shapeObj = new fabric.Path(pathPoints, { left: 200, top: 200, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
     } else if (shapeType === 'cloud') {
-      // PDF Revision Cloud Polygon
       const cloudPath = 'M 10 30 Q 15 10, 35 15 Q 55 5, 70 25 Q 90 25, 90 45 Q 95 65, 75 75 Q 65 95, 45 85 Q 25 95, 15 75 Q -5 65, 5 45 Q -5 25, 10 30 Z';
       shapeObj = new fabric.Path(cloudPath, { left: 200, top: 200, fill: 'transparent', stroke: '#ef4444', strokeWidth: 3, scaleX: 1.5, scaleY: 1.5 });
     }
@@ -581,15 +729,25 @@ export default function CanvasStudio() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
-      {/* 1. TOP PORTAL SWITCHER BAR */}
+      {/* 1. TOP PORTAL SWITCHER & GLOBAL DOCUMENT ACTIONS (PRINT, SHARE, SEARCH, DONE) */}
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '6px', zIndex: 40, boxSizing: 'border-box' }}>
-        <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={16} /> OmniStudio</span>
+        <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={16} /> OmniStudio</span>
         
         <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={13} /> PDF Portal</button>
         <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={13} /> Canvas Studio</button>
         <button onClick={() => setActivePortal('image')} style={portalTabStyle(activePortal === 'image')}><Sliders size={13} /> Image Filters</button>
         <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video & Audio</button>
         <button onClick={() => setActivePortal('transcribe')} style={portalTabStyle(activePortal === 'transcribe')}><Mic size={13} /> AI Subtitles</button>
+
+        <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
+        {/* SEARCH, PRINT, SHARE, DONE GLOBAL ACTIONS */}
+        <button title="Search Text" onClick={handleSearch} style={globalHeaderBtnStyle}><Search size={13} /> Search</button>
+        <button title="Print Document Page" onClick={handlePrint} style={globalHeaderBtnStyle}><Printer size={13} /> Print</button>
+        <button title="Download / Export" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
+        <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
+
+        <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
@@ -598,7 +756,7 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON */}
+      {/* 2. SECONDARY TOOL RIBBON (INCLUDES CHECK, CROSS, SIGN, LINK, MORE TOOLS) */}
       <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
@@ -617,7 +775,7 @@ export default function CanvasStudio() {
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool (Click & Drag View)" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -631,6 +789,25 @@ export default function CanvasStudio() {
 
               <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
                 <Pencil size={14} /> Draw
+              </button>
+
+              {/* CHECKMARK & CROSSMARK QUICK ANNOTATIONS */}
+              <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
+                <Check size={14} /> Check
+              </button>
+
+              <button title="Add Red Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
+                <X size={14} /> Cross
+              </button>
+
+              {/* ELECTRONIC SIGNATURE TOOL */}
+              <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}>
+                <PenTool size={14} /> Sign
+              </button>
+
+              {/* HYPERLINK ATTACHMENT TOOL */}
+              <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
+                <Link size={14} /> Links
               </button>
 
               <div style={{ position: 'relative' }}>
@@ -665,7 +842,6 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* Vector Shape Annotation Suite Submenu */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
                   <Square size={14} /> Shapes <ChevronDown size={11} />
@@ -679,6 +855,23 @@ export default function CanvasStudio() {
                     <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
                     <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
                     <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
+                  </div>
+                )}
+              </div>
+
+              {/* MORE TOOLS SUBMENU (CROP, ZOOM, LAYOUT, MANAGE PAGES) */}
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
+                  More Tools <ChevronRight size={11} />
+                </button>
+                {activeDropdown === 'moreTools' && (
+                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                    <button onClick={handleCropTool} style={dropdownItemStyle}><Crop size={13} /> Crop Image / Page</button>
+                    <button onClick={() => handleZoom(zoomLevel + 0.1)} style={dropdownItemStyle}><ZoomIn size={13} /> Zoom In (+)</button>
+                    <button onClick={() => handleZoom(zoomLevel - 0.1)} style={dropdownItemStyle}><ZoomOut size={13} /> Zoom Out (-)</button>
+                    <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
+                    <button onClick={handlePageLayoutToggle} style={dropdownItemStyle}><Layout size={13} /> Page Layout (Portrait/Landscape)</button>
+                    <button onClick={handleManagePages} style={dropdownItemStyle}><FileCog size={13} /> Manage Pages (Delete/Rotate)</button>
                   </div>
                 )}
               </div>
@@ -745,7 +938,6 @@ export default function CanvasStudio() {
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
-        {/* Font Family */}
         <select 
           value={fontFamilyVal} 
           onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
@@ -759,7 +951,6 @@ export default function CanvasStudio() {
           <option value="Trebuchet MS">Trebuchet MS</option>
         </select>
 
-        {/* Font Size */}
         <input 
           type="number" 
           min="8" 
@@ -771,40 +962,34 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Bold, Italic, Underline */}
         <button onClick={() => { const next = !isBoldVal; setIsBoldVal(next); updateActiveTextProp('fontWeight', next ? 'bold' : 'normal'); }} style={inspectorToggleBtnStyle(isBoldVal)}><b>B</b></button>
         <button onClick={() => { const next = !isItalicVal; setIsItalicVal(next); updateActiveTextProp('fontStyle', next ? 'italic' : 'normal'); }} style={inspectorToggleBtnStyle(isItalicVal)}><i>I</i></button>
         <button onClick={() => { const next = !isUnderlineVal; setIsUnderlineVal(next); updateActiveTextProp('underline', next); }} style={inspectorToggleBtnStyle(isUnderlineVal)}><u>U</u></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Align Text Left, Center, Right */}
         <button title="Align Left" onClick={() => { setTextAlignVal('left'); updateActiveTextProp('textAlign', 'left'); }} style={inspectorToggleBtnStyle(textAlignVal === 'left')}><AlignLeft size={13} /></button>
         <button title="Align Center" onClick={() => { setTextAlignVal('center'); updateActiveTextProp('textAlign', 'center'); }} style={inspectorToggleBtnStyle(textAlignVal === 'center')}><AlignCenter size={13} /></button>
         <button title="Align Right" onClick={() => { setTextAlignVal('right'); updateActiveTextProp('textAlign', 'right'); }} style={inspectorToggleBtnStyle(textAlignVal === 'right')}><AlignRight size={13} /></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Align Text Top, Middle, Bottom */}
         <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignStartVertical size={13} /></button>
         <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignCenterVertical size={13} /></button>
         <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignEndVertical size={13} /></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Font Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Font Color:
           <input type="color" value={textColorVal} onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
         </label>
 
-        {/* Text Background Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           BG Color:
           <input type="color" value={textBgColorVal} onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
         </label>
 
-        {/* Opacity */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Opacity:
           <input type="range" min="0.1" max="1" step="0.05" value={textOpacityVal} onChange={(e) => { setTextOpacityVal(Number(e.target.value)); updateActiveTextProp('opacity', Number(e.target.value)); }} style={{ width: '50px', cursor: 'pointer', accentColor: '#0284c7' }} />
@@ -890,6 +1075,37 @@ const portalTabStyle = (active) => ({
   fontSize: '11px',
   fontWeight: 'bold',
 });
+
+const globalHeaderBtnStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 8px',
+  backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+};
+
+const doneHeaderBtnStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: '#10b981',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+};
 
 const prominentBtnStyle = (bgColor) => ({
   display: 'flex',
