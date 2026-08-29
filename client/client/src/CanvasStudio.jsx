@@ -11,7 +11,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
   PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
-  FileDown
+  FileDown, Maximize2, MoveHorizontal
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
@@ -34,6 +34,9 @@ export default function CanvasStudio() {
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState(null);
+
+  // Dynamic Fit Mode State: 'width' (page-width fit to width) | 'page' (page-fit fit to full page)
+  const [fitMode, setFitMode] = useState('width');
 
   // Cloud Sync State
   const [currentProjectId, setCurrentProjectId] = useState(null);
@@ -175,7 +178,7 @@ export default function CanvasStudio() {
 
       for (let i = 1; i <= totalPages; i++) {
         setStatus(`📄 Rendering & baking Page ${i} of ${totalPages}...`);
-        await renderPdfPageOntoCanvas(pdfDoc, i);
+        await renderPdfPageOntoCanvas(pdfDoc, i, fitMode);
 
         const pageDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
 
@@ -186,7 +189,7 @@ export default function CanvasStudio() {
         pdfExport.addImage(pageDataUrl, 'PNG', 0, 0, fabricCanvas.width, fabricCanvas.height);
       }
 
-      await renderPdfPageOntoCanvas(pdfDoc, currentPage);
+      await renderPdfPageOntoCanvas(pdfDoc, currentPage, fitMode);
       setPageNum(currentPage);
 
       pdfExport.save(`omnistudio-edited-document-${Date.now()}.pdf`);
@@ -551,12 +554,33 @@ export default function CanvasStudio() {
     activateToolMode('pointReplace');
   };
 
-  const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
+  // --- DYNAMIC DUAL FIT MODE ENGINE (page-width & page-fit) ---
+  const renderPdfPageOntoCanvas = async (pdf, pageNumber, mode = fitMode) => {
     if (!pdf || !fabricCanvas) return;
 
     const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.5 });
+    const unscaledViewport = page.getViewport({ scale: 1.0 });
 
+    const canvasWidth = 820;
+    const canvasHeight = 480;
+    const padding = 24;
+
+    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+    let computedScale = 1.0;
+
+    if (mode === 'width') {
+      // PAGE-WIDTH (Fit to Width): Scales text margins to hug left & right edges (Eliminates 4K/Retina squinting!)
+      computedScale = (canvasWidth - padding) / unscaledViewport.width;
+    } else {
+      // PAGE-FIT (Fit to Page): Scales entire page to fit inside canvas height & width without scrolling
+      computedScale = Math.min(
+        (canvasWidth - padding) / unscaledViewport.width,
+        (canvasHeight - padding) / unscaledViewport.height
+      );
+    }
+
+    const viewport = page.getViewport({ scale: computedScale });
     const tempCanvas = document.createElement('canvas');
     const context = tempCanvas.getContext('2d');
     tempCanvas.height = viewport.height;
@@ -567,16 +591,8 @@ export default function CanvasStudio() {
     const imgData = tempCanvas.toDataURL('image/png');
     const imgObj = await fabric.FabricImage.fromURL(imgData);
 
-    const canvasWidth = 820;
-    const canvasHeight = 480;
-
-    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
-
-    const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
-    imgObj.scale(scale);
-
-    const left = (canvasWidth - imgObj.width * scale) / 2;
-    const top = (canvasHeight - imgObj.height * scale) / 2;
+    const left = (canvasWidth - imgObj.width) / 2;
+    const top = (canvasHeight - imgObj.height) / 2;
 
     imgObj.set({ left, top, selectable: false });
 
@@ -590,9 +606,9 @@ export default function CanvasStudio() {
         if (!item.str || !item.str.trim()) return;
 
         const tx = item.transform;
-        const pdfX = tx[4] * (scale / 1.5) + left;
-        const pdfY = (viewport.height - tx[5]) * (scale / 1.5) + top - 12;
-        const fontSize = Math.max(12, (item.height || 14) * (scale / 1.5));
+        const pdfX = tx[4] * computedScale + left;
+        const pdfY = (unscaledViewport.height - tx[5]) * computedScale + top - (12 * computedScale);
+        const fontSize = Math.max(12, (item.height || 14) * computedScale);
 
         const textObj = new fabric.IText(item.str, {
           left: pdfX,
@@ -614,6 +630,14 @@ export default function CanvasStudio() {
     saveState(fabricCanvas);
   };
 
+  const handleToggleFitMode = (newMode) => {
+    setFitMode(newMode);
+    if (pdfDoc) {
+      renderPdfPageOntoCanvas(pdfDoc, pageNum, newMode);
+      setStatus(`🔍 Fit Mode changed to: ${newMode === 'width' ? 'Fit to Width (page-width)' : 'Fit to Page (page-fit)'}`);
+    }
+  };
+
   const handlePdfDocumentUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -628,8 +652,8 @@ export default function CanvasStudio() {
       setPageNum(1);
 
       generateThumbnails(loadedPdf);
-      await renderPdfPageOntoCanvas(loadedPdf, 1);
-      setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
+      await renderPdfPageOntoCanvas(loadedPdf, 1, fitMode);
+      setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages} (Fit: ${fitMode === 'width' ? 'Page Width' : 'Full Page'})`);
     } catch (err) {
       setStatus(`Error loading PDF: ${err.message}`);
     }
@@ -654,7 +678,7 @@ export default function CanvasStudio() {
   const changePdfPage = async (newPage) => {
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
     setPageNum(newPage);
-    await renderPdfPageOntoCanvas(pdfDoc, newPage);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage, fitMode);
   };
 
   const handlePrint = () => {
@@ -1399,7 +1423,7 @@ export default function CanvasStudio() {
 
       </div>
 
-      {/* 3. TEXT FORMATTING INSPECTOR BAR (Flex Wrap Fixed) */}
+      {/* 3. TEXT FORMATTING INSPECTOR BAR */}
       <div style={{ minHeight: '36px', height: 'auto', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', flexWrap: 'wrap', alignItems: 'center', padding: '4px 10px', gap: '6px 8px', zIndex: 25, boxSizing: 'border-box' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
@@ -1503,11 +1527,34 @@ export default function CanvasStudio() {
             <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', boxSizing: 'border-box' }}>
               <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+                
+                {/* DYNAMIC ZOOM FIT TOOLBAR (Fit Width & Fit Page) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
                   <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
-                  <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', width: '38px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
                   <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
-                  <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+                  
+                  <div style={{ width: '1px', height: '14px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+                  {/* FIT TO WIDTH BUTTON (page-width) */}
+                  <button 
+                    title="Fit to Width (page-width): Scales margins to hug left/right edges for maximum 4K/Retina readability" 
+                    onClick={() => handleToggleFitMode('width')} 
+                    style={fitModeBtnStyle(fitMode === 'width')}
+                  >
+                    <MoveHorizontal size={12} /> Fit Width
+                  </button>
+
+                  {/* FIT TO PAGE BUTTON (page-fit) */}
+                  <button 
+                    title="Fit to Page (page-fit): Scales entire page to fit inside canvas viewport without scrolling" 
+                    onClick={() => handleToggleFitMode('page')} 
+                    style={fitModeBtnStyle(fitMode === 'page')}
+                  >
+                    <Maximize2 size={12} /> Fit Page
+                  </button>
+
+                  <button title="Reset Zoom" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '2px' }}>Fit 100%</button>
                 </div>
               </div>
 
@@ -1732,6 +1779,20 @@ const inspectorToggleBtnStyle = (active) => ({
   borderRadius: '3px',
   cursor: 'pointer',
   fontSize: '11px',
+});
+
+const fitModeBtnStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '3px',
+  padding: '2px 6px',
+  backgroundColor: active ? '#0284c7' : 'transparent',
+  color: active ? '#ffffff' : 'inherit',
+  border: '1px solid #334155',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '10px',
+  fontWeight: 'bold',
 });
 
 const dropdownMenuStyle = (bg, border) => ({
