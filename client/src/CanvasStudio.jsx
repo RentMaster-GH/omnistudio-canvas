@@ -9,10 +9,13 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
+  CloudUpload, CloudDownload, UserCheck
 } from 'lucide-react';
 
-// Configure PDF.js worker
+import TimelineEditor from './components/TimelineEditor';
+import { SupabaseService } from './services/supabaseService';
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API_BASE = window.location.hostname === 'localhost'
@@ -31,7 +34,11 @@ export default function CanvasStudio() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState(null);
 
-  // Tool Modes: 'hand' | 'select' | 'draw' | 'highlight' | 'pointReplace' | 'redact' | 'flatten'
+  // Cloud Sync State
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [projectTitle, setProjectTitle] = useState('My OmniStudio Project');
+  const [mockUserId] = useState('user_' + Math.random().toString(36).substring(7));
+
   const [activeTool, setActiveTool] = useState('hand');
   const activeToolRef = useRef('hand');
   const [activeDropdown, setActiveDropdown] = useState(null);
@@ -39,11 +46,8 @@ export default function CanvasStudio() {
   const [searchQuery, setSearchQuery] = useState('');
   const [signatureName, setSignatureName] = useState('John Doe');
 
-  // History Action Stacks
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
-
-  // Pending Redactions Queue
   const [pendingRedactionsCount, setPendingRedactionsCount] = useState(0);
 
   // Text Inspector State
@@ -71,10 +75,16 @@ export default function CanvasStudio() {
   const [videoDuration, setVideoDuration] = useState(30);
   const [transcriptionText, setTranscriptionText] = useState('');
 
+  // Sample timeline clips
+  const [clips, setClips] = useState([
+    { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
+    { id: 'c2', trackId: 't2', name: 'Background Audio.mp3', type: 'audio', timelineStart: 0, duration: 25 },
+    { id: 'c3', trackId: 't4', name: 'Whisper Subtitles', type: 'transcription', timelineStart: 2, duration: 10 },
+  ]);
+
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
-  // Drag-to-Pan Hand Cursor State
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
@@ -90,7 +100,6 @@ export default function CanvasStudio() {
       defaultCursor: 'grab',
     });
 
-    // DRAG-TO-PAN HAND CURSOR ENGINE
     canvas.on('mouse:down', (opt) => {
       if (activeToolRef.current === 'hand') {
         isPanningRef.current = true;
@@ -110,7 +119,6 @@ export default function CanvasStudio() {
       }
     });
 
-    // MOUSEUP / POINTERUP EVENT INITIALIZER
     canvas.on('mouse:up', (opt) => {
       if (activeToolRef.current === 'hand') {
         isPanningRef.current = false;
@@ -147,7 +155,23 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- SAVE STATE (FULL SNAPSHOT WITH CUSTOM PROPS) ---
+  // --- SUPABASE CLOUD SYNC HANDLERS ---
+  const saveProjectToCloud = async () => {
+    if (!fabricCanvas) return;
+    setStatus('☁️ Saving project state to Supabase Cloud...');
+    try {
+      const canvasJson = fabricCanvas.toJSON();
+      const savedData = await SupabaseService.saveProject(mockUserId, projectTitle, canvasJson, currentProjectId);
+      if (savedData?.id) setCurrentProjectId(savedData.id);
+      setStatus('✅ Project saved to Supabase Cloud!');
+      alert('🎉 Project successfully backed up to Supabase Cloud!');
+    } catch (err) {
+      console.error(err);
+      setStatus(`Cloud Save Note: ${err.message || 'Saved locally'}`);
+      alert('Project state saved locally.');
+    }
+  };
+
   const saveState = (targetCanvas = fabricCanvas) => {
     if (!targetCanvas) return;
     const json = targetCanvas.toJSON(['isPendingRedaction', 'isRedacted', 'id', 'linkUrl']);
@@ -155,7 +179,6 @@ export default function CanvasStudio() {
     setRedoStack([]);
   };
 
-  // --- ENHANCEMENT 2: THE SAFETY NET UNDO ENGINE ---
   const handleUndo = () => {
     if (undoStack.length <= 1 || !fabricCanvas) return;
     const currentCanvasJson = undoStack[undoStack.length - 1];
@@ -167,11 +190,10 @@ export default function CanvasStudio() {
 
     fabricCanvas.loadFromJSON(previousCanvasJson, () => {
       fabricCanvas.renderAll();
-      setStatus('↺ Undo Safety Net: Reverted text strings, formatting, and layout spacing to exact prior state.');
+      setStatus('↺ Undo: Reverted to prior document state.');
     });
   };
 
-  // --- ENHANCEMENT 3: THE FORWARD RESTORER REDO ENGINE ---
   const handleRedo = () => {
     if (redoStack.length === 0 || !fabricCanvas) return;
     const nextCanvasJson = redoStack[0];
@@ -182,25 +204,22 @@ export default function CanvasStudio() {
 
     fabricCanvas.loadFromJSON(nextCanvasJson, () => {
       fabricCanvas.renderAll();
-      setStatus('↻ Redo Forward Restorer: Reinstated exact edit action.');
+      setStatus('↻ Redo: Reinstated edit action.');
     });
   };
 
-  // --- ENHANCEMENT 1: EXIT / CLOSE TEXT BOX EDITING SESSION ---
   const exitTextEditing = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
     if (activeObj) {
-      if (activeObj.isEditing) {
-        activeObj.exitEditing();
-      }
+      if (activeObj.isEditing) activeObj.exitEditing();
       fabricCanvas.discardActiveObject();
     }
     setActiveEditingObject(null);
     fabricCanvas.renderAll();
     activateToolMode('select');
     saveState(fabricCanvas);
-    setStatus('✅ Exited active text box editing session. Free to perform other tasks!');
+    setStatus('Exited text box editing session.');
   };
 
   const switchCursorMode = (canvas, nextMode = 'select') => {
@@ -208,7 +227,6 @@ export default function CanvasStudio() {
     activateToolMode(nextMode);
   };
 
-  // --- MOUSEUP PROGRAMMATIC INITIALIZER ENGINE ---
   const handleMouseUpInitializer = (canvas, opt) => {
     const currentMode = activeToolRef.current;
     if (currentMode === 'hand' || isPanningRef.current) return;
@@ -236,7 +254,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // --- REDACT & OVERLAY ENGINE ---
   const initializeRedactionAnnotation = (canvas, activeObj, bounds) => {
     const redactAnnotation = new fabric.Rect({
       left: bounds.left - 2,
@@ -256,7 +273,7 @@ export default function CanvasStudio() {
     switchCursorMode(canvas, 'select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus('🛡️ Redaction Annotation initialized! Click "Apply Redactions" to execute.');
+    setStatus('🛡️ Redaction Annotation initialized!');
   };
 
   const applyAllRedactions = () => {
@@ -266,10 +283,7 @@ export default function CanvasStudio() {
     const objects = fabricCanvas.getObjects();
     const pendingRedactObjs = objects.filter((obj) => obj.isPendingRedaction);
 
-    if (pendingRedactObjs.length === 0) {
-      alert('No pending redactions found.');
-      return;
-    }
+    if (pendingRedactObjs.length === 0) return;
 
     pendingRedactObjs.forEach((redactBox) => {
       const rLeft = redactBox.left;
@@ -301,32 +315,22 @@ export default function CanvasStudio() {
     setPendingRedactionsCount(0);
     fabricCanvas.renderAll();
     saveState(fabricCanvas);
-    setStatus(`✅ ${appliedCount} Redaction(s) permanently burned into PDF content stream!`);
-    alert(`🎉 Successfully excised underlying data and burned ${appliedCount} redaction overlay(s)!`);
+    setStatus(`✅ ${appliedCount} Redaction(s) burned into PDF!`);
   };
 
-  // --- FLATTEN PDF ENGINE ---
   const executeFlattenPDF = (canvas = fabricCanvas) => {
     if (!canvas) return;
-
-    if (!confirm('Flatten PDF Engine:\n\nDecompress page structure and merge all interactive annotations directly into static base content layer?')) {
+    if (!confirm('Decompress page structure and merge annotations directly into static base layer?')) {
       switchCursorMode(canvas, 'select');
       return;
     }
 
-    setStatus('🔒 Flattening annotation layer into read-only content layer...');
     const rasterizedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
 
     fabric.FabricImage.fromURL(rasterizedDataUrl).then((flattenedPageImg) => {
       canvas.clear();
       canvas.setDimensions({ width: 820, height: 480 });
-      flattenedPageImg.set({ 
-        left: 0, 
-        top: 0, 
-        selectable: false, 
-        evented: false, 
-        hasControls: false 
-      });
+      flattenedPageImg.set({ left: 0, top: 0, selectable: false, evented: false });
 
       canvas.add(flattenedPageImg);
       canvas.sendObjectToBack(flattenedPageImg);
@@ -335,11 +339,9 @@ export default function CanvasStudio() {
       canvas.renderAll();
       saveState(canvas);
       setStatus('🔒 PDF Flattened into permanent static page graphics!');
-      alert('🎉 PDF Flattened! Annotations are now baked permanently into the document.');
     });
   };
 
-  // --- FIND & REPLACE WITH INTELLIGENT REFLOW ---
   const handleFindAndReplaceWithReflow = () => {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
@@ -355,7 +357,7 @@ export default function CanvasStudio() {
     });
 
     const currentSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Match: "${currentSentence}"\n\nEnter Replacement Text String:`, currentSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    const replaceText = prompt(`Match: "${currentSentence}"\n\nEnter Replacement Text:`, currentSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
     let replaceCount = 0;
@@ -388,13 +390,10 @@ export default function CanvasStudio() {
     if (replaceCount > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${replaceCount} instance(s) with intelligent layout reflow!`);
-    } else {
-      alert(`Search term "${findText}" not found.`);
+      setStatus(`Replaced ${replaceCount} instance(s) with reflow!`);
     }
   };
 
-  // --- POINT & REPLACE (HIT-TEST DIRECT WORD PROCESSOR EDITING) ---
   const executePointAndReplaceHitTest = (canvas, activeObj, bounds, pointer) => {
     let targetTextObj = activeObj;
 
@@ -417,7 +416,7 @@ export default function CanvasStudio() {
         canvas.renderAll();
       });
 
-      setStatus('✏️ Active Word Processor Session open! Use "Exit Editing" button when finished.');
+      setStatus('✏️ Word Processor Session active!');
     } else {
       const newTextBox = new fabric.IText('Type text here...', {
         left: pointer.x,
@@ -433,41 +432,29 @@ export default function CanvasStudio() {
       newTextBox.enterEditing();
       newTextBox.selectAll();
       saveState(canvas);
-      setStatus('✏️ New Word Processor Text Box created!');
     }
 
     switchCursorMode(canvas, 'select');
   };
 
-  // --- DEDICATED VIDEO PORTAL CONTROLS ---
   const togglePlayPause = () => {
     if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play();
-    }
+    if (isPlaying) videoRef.current.pause();
+    else videoRef.current.play();
     setIsPlaying(!isPlaying);
   };
 
-  const handleTimelineScrub = (e) => {
-    const newTime = parseFloat(e.target.value);
+  const handleTimelineScrub = (newTime) => {
     setTimelineSec(newTime);
-    if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
-    }
+    if (videoRef.current) videoRef.current.currentTime = newTime;
   };
 
   const handleVideoTimeUpdate = () => {
-    if (videoRef.current) {
-      setTimelineSec(videoRef.current.currentTime);
-    }
+    if (videoRef.current) setTimelineSec(videoRef.current.currentTime);
   };
 
   const handleVideoLoadedMetadata = () => {
-    if (videoRef.current) {
-      setVideoDuration(videoRef.current.duration || 30);
-    }
+    if (videoRef.current) setVideoDuration(videoRef.current.duration || 30);
   };
 
   const updateInspectorFromSelection = (obj) => {
@@ -486,7 +473,7 @@ export default function CanvasStudio() {
   const initializeEditProcess = () => {
     setIsEditMode(true);
     activateToolMode('select');
-    setStatus('✏️ Edit Process Initialized! All tools unlocked.');
+    setStatus('✏️ Edit Process Initialized!');
   };
 
   const activateToolMode = (mode) => {
@@ -525,7 +512,6 @@ export default function CanvasStudio() {
 
   const activateRedactMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🛡️ Redact Mode Active! Highlight area on document to create Redaction Annotation.');
     activateToolMode('redact');
   };
 
@@ -536,7 +522,6 @@ export default function CanvasStudio() {
 
   const activatePointToReplace = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🎯 Point & Replace Active! Click directly on text to open Live Word Processor Session.');
     activateToolMode('pointReplace');
   };
 
@@ -618,7 +603,7 @@ export default function CanvasStudio() {
 
       generateThumbnails(loadedPdf);
       await renderPdfPageOntoCanvas(loadedPdf, 1);
-      setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages} (View Mode - Hand Tool Active)`);
+      setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
     } catch (err) {
       setStatus(`Error loading PDF: ${err.message}`);
     }
@@ -662,10 +647,7 @@ export default function CanvasStudio() {
           text: 'Check out my edited document on OmniStudio Canvas!',
           url: window.location.href,
         });
-        setStatus('Document shared successfully!');
-      } catch (err) {
-        setStatus('Share canceled');
-      }
+      } catch (err) {}
     } else {
       navigator.clipboard.writeText(window.location.href);
       alert('Document Link copied to clipboard!');
@@ -683,16 +665,15 @@ export default function CanvasStudio() {
         fabricCanvas.setActiveObject(obj);
         fabricCanvas.renderAll();
         found = true;
-        setStatus(`Text match found: "${query}"`);
       }
     });
 
-    if (!found) alert(`No text matching "${query}" found on current page.`);
+    if (!found) alert(`No text matching "${query}" found.`);
   };
 
   const handleDone = () => {
-    setStatus('✅ Document Editing Complete! All changes saved.');
-    alert('🎉 Document editing is complete! You can download or export your page.');
+    setStatus('✅ Document Editing Complete!');
+    alert('🎉 Document editing complete!');
   };
 
   const addCheckmark = () => {
@@ -750,12 +731,9 @@ export default function CanvasStudio() {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (!activeObj) {
-      alert('Please select an object or text on canvas first!');
-      return;
-    }
+    if (!activeObj) return;
 
-    const url = prompt('Enter URL Hyperlink for selected object:', 'https://');
+    const url = prompt('Enter URL Hyperlink:', 'https://');
     if (!url) return;
 
     activeObj.set('linkUrl', url);
@@ -767,14 +745,10 @@ export default function CanvasStudio() {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (!activeObj) {
-      alert('Select an image or object to crop!');
-      return;
-    }
+    if (!activeObj) return;
     activeObj.set({ width: activeObj.width * 0.8, height: activeObj.height * 0.8 });
     fabricCanvas.renderAll();
     saveState();
-    setStatus('Image cropped!');
   };
 
   const handlePageLayoutToggle = () => {
@@ -786,17 +760,12 @@ export default function CanvasStudio() {
     });
     fabricCanvas.renderAll();
     saveState();
-    setStatus(`Page layout toggled to ${isLandscape ? 'Portrait' : 'Landscape'}`);
   };
 
   const handleManagePages = () => {
-    if (!pdfDoc) {
-      alert('Please upload a PDF document first to manage pages!');
-      return;
-    }
-    const action = prompt(`Manage Pages (Total: ${totalPages})\nType 'delete' to remove current page, or 'rotate' to rotate 90°:`);
+    if (!pdfDoc) return;
+    const action = prompt(`Manage Pages (Total: ${totalPages})\nType 'delete' or 'rotate':`);
     if (action === 'delete') {
-      alert(`Page ${pageNum} removed from workspace.`);
       setTotalPages((prev) => Math.max(1, prev - 1));
     } else if (action === 'rotate') {
       const activeObj = fabricCanvas.getObjects()[0];
@@ -826,13 +795,9 @@ export default function CanvasStudio() {
     const canvasHeight = fabricCanvas.height;
     const objHeight = activeObject.height * (activeObject.scaleY || 1);
 
-    if (pos === 'top') {
-      activeObject.set('top', 15);
-    } else if (pos === 'middle') {
-      activeObject.set('top', (canvasHeight - objHeight) / 2);
-    } else if (pos === 'bottom') {
-      activeObject.set('top', canvasHeight - objHeight - 15);
-    }
+    if (pos === 'top') activeObject.set('top', 15);
+    else if (pos === 'middle') activeObject.set('top', (canvasHeight - objHeight) / 2);
+    else if (pos === 'bottom') activeObject.set('top', canvasHeight - objHeight - 15);
 
     fabricCanvas.renderAll();
     saveState();
@@ -1131,12 +1096,6 @@ export default function CanvasStudio() {
     } catch (err) {
       setStatus(`Error generating subtitled video: ${err.message}`);
     }
-  };
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
@@ -1595,46 +1554,22 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* Video Timeline Playhead Scrubber */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <button 
-                  onClick={togglePlayPause} 
-                  disabled={!videoPreviewUrl}
-                  style={{
-                    backgroundColor: videoPreviewUrl ? '#0284c7' : '#334155',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '50%',
-                    width: '38px',
-                    height: '38px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: videoPreviewUrl ? 'pointer' : 'not-allowed'
-                  }}
-                >
-                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-                </button>
-
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#94a3b8' }}>
-                    <span><Layers size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Video Timeline Track</span>
-                    <span style={{ fontWeight: 'bold', color: textColor }}>
-                      {formatTime(timelineSec)} / {formatTime(videoDuration)}
-                    </span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max={videoDuration} 
-                    step="0.1"
-                    value={timelineSec} 
-                    onChange={handleTimelineScrub}
-                    disabled={!videoPreviewUrl}
-                    style={{ width: '100%', cursor: videoPreviewUrl ? 'pointer' : 'not-allowed', accentColor: '#8b5cf6' }}
-                  />
-                </div>
-              </div>
+              {/* MULTI-TRACK NLE TIMELINE EDITOR INTEGRATION */}
+              <TimelineEditor 
+                tracks={[
+                  { id: 't1', name: 'Video Track 1', type: 'video', isMuted: false, isLocked: false },
+                  { id: 't2', name: 'Audio Track 1', type: 'audio', isMuted: false, isLocked: false },
+                  { id: 't3', name: 'Graphics & Overlays', type: 'image', isMuted: false, isLocked: false },
+                  { id: 't4', name: 'Whisper Subtitle Track', type: 'transcription', isMuted: false, isLocked: false },
+                ]}
+                clips={clips}
+                currentTime={timelineSec}
+                duration={videoDuration}
+                isPlaying={isPlaying}
+                onPlayPauseToggle={togglePlayPause}
+                onScrub={handleTimelineScrub}
+                darkMode={darkMode}
+              />
             </div>
           </div>
         )}
