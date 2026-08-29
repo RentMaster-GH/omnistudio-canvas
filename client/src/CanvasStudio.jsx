@@ -21,10 +21,10 @@ const API_BASE = window.location.hostname === 'localhost'
 
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
-  const videoRef = useRef(null); // Dedicated Video Player Ref
+  const videoRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  const [activePortal, setActivePortal] = useState('pdf'); // 'pdf' | 'canvas' | 'image' | 'video' | 'transcribe'
+  const [activePortal, setActivePortal] = useState('pdf');
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready - View Mode');
 
@@ -59,7 +59,7 @@ export default function CanvasStudio() {
 
   const [zoomLevel, setZoomLevel] = useState(1.0);
 
-  // Dedicated Video Portal & Timeline State
+  // Video Portal & Timeline State
   const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
@@ -105,6 +105,7 @@ export default function CanvasStudio() {
       }
     });
 
+    // MOUSEUP / POINTERUP EVENT INITIALIZER
     canvas.on('mouse:up', (opt) => {
       if (activeToolRef.current === 'hand') {
         isPanningRef.current = false;
@@ -152,38 +153,13 @@ export default function CanvasStudio() {
     });
   };
 
-  // --- DEDICATED VIDEO PORTAL & TIMELINE CONTROLS ---
-  const togglePlayPause = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
+  // --- DYNAMIC CURSOR MODE SWITCHER ---
+  const switchCursorMode = (canvas, nextMode = 'select') => {
+    canvas.discardActiveObject(); // Deactivating the Selection Tool
+    activateToolMode(nextMode);   // Cursor Mode Switching
   };
 
-  const handleTimelineScrub = (e) => {
-    const newTime = parseFloat(e.target.value);
-    setTimelineSec(newTime);
-    if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
-    }
-  };
-
-  const handleVideoTimeUpdate = () => {
-    if (videoRef.current) {
-      setTimelineSec(videoRef.current.currentTime);
-    }
-  };
-
-  const handleVideoLoadedMetadata = () => {
-    if (videoRef.current) {
-      setVideoDuration(videoRef.current.duration || 30);
-    }
-  };
-
-  // --- MOUSEUP INITIALIZER ENGINE ---
+  // --- MOUSEUP / POINTERUP PROGRAMMATIC INITIALIZER ENGINE ---
   const handleMouseUpInitializer = (canvas, opt) => {
     const currentMode = activeToolRef.current;
     if (currentMode === 'hand' || isPanningRef.current) return;
@@ -191,35 +167,49 @@ export default function CanvasStudio() {
     const pointer = canvas.getPointer(opt.e);
     const activeObj = canvas.getActiveObject() || opt.target;
 
-    let bounds = {
+    // Capture Bounding Box Quads (Boundary Coordinates: x1..y4 & left, top, width, height)
+    const bounds = {
       left: activeObj ? activeObj.left : pointer.x - 5,
       top: activeObj ? activeObj.top : pointer.y - 5,
       width: activeObj ? (activeObj.width * (activeObj.scaleX || 1)) + 10 : 140,
       height: activeObj ? (activeObj.height * (activeObj.scaleY || 1)) + 5 : 35,
+      quads: [
+        pointer.x, pointer.y,
+        pointer.x + 140, pointer.y,
+        pointer.x + 140, pointer.y + 35,
+        pointer.x, pointer.y + 35
+      ],
       extractedText: (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text')) ? activeObj.text : 'Extracted Text',
       fontSize: activeObj ? (activeObj.fontSize || fontSizeVal) : fontSizeVal,
       fontFamily: activeObj ? (activeObj.fontFamily || fontFamilyVal) : fontFamilyVal,
       fill: activeObj ? (activeObj.fill || textColorVal) : textColorVal,
     };
 
+    // 1. REDACT & OVERLAY ON MOUSEUP
     if (currentMode === 'redact') {
       executeRedactionOnMouseUp(canvas, activeObj, bounds);
-    } else if (currentMode === 'flatten') {
-      executeFlattenOnMouseUp(canvas);
-    } else if (currentMode === 'pointReplace') {
+    } 
+    // 2. FLATTEN PDF ON MOUSEUP
+    else if (currentMode === 'flatten') {
+      executeFlattenOnMouseUp(canvas, bounds);
+    } 
+    // 3. POINT & REPLACE ON MOUSEUP
+    else if (currentMode === 'pointReplace') {
       executePointReplaceOnMouseUp(canvas, activeObj, bounds);
     }
   };
 
+  // 1. REDACT & OVERLAY INITIALIZATION ON MOUSEUP
   const executeRedactionOnMouseUp = (canvas, activeObj, bounds) => {
-    const redactStyle = prompt('MouseUp Captured Quads!\nSelect Redaction Type:\nType "blackout" for Security Black Box, or "whiteout" for Clean Erasure:', 'blackout');
+    const redactStyle = prompt(`MouseUp Programmatic Initializer Captured Quads:\n[${bounds.quads.join(', ')}]\n\nSelect Redaction Type:\nType "blackout" for Security Black Box, or "whiteout" for Clean Erasure:`, 'blackout');
     if (!redactStyle) {
-      activateToolMode('select');
+      switchCursorMode(canvas, 'select');
       return;
     }
 
     const replacementText = prompt('Enter Overlay Replacement Text (leave empty for Security Redaction only):');
 
+    // Instantiate Redact Annotation over Captured Quads
     const redactionBox = new fabric.Rect({
       left: bounds.left - 2,
       top: bounds.top - 2,
@@ -245,19 +235,21 @@ export default function CanvasStudio() {
       canvas.setActiveObject(overlayText);
     }
 
-    activateToolMode('select');
+    // Cursor Mode Switching: Deactivate Selection & Toggle Cursor Mode back to select
+    switchCursorMode(canvas, 'select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus('🛡️ Redaction & Overlay Initialized!');
+    setStatus('🛡️ Redact Annotation instantiated over Quads on MouseUp awaiting ApplyRedaction!');
   };
 
-  const executeFlattenOnMouseUp = (canvas) => {
-    if (!confirm('Execute Flatten operation to permanently merge all annotations into static page layer?')) {
-      activateToolMode('select');
+  // 2. FLATTEN PDF INITIALIZATION ON MOUSEUP
+  const executeFlattenOnMouseUp = (canvas, bounds) => {
+    if (!confirm(`MouseUp Captured Markup Coordinates:\n[X: ${Math.round(bounds.left)}, Y: ${Math.round(bounds.top)}]\n\nExecute Flatten operation to permanently merge all annotation layers directly into static page content layer?`)) {
+      switchCursorMode(canvas, 'select');
       return;
     }
 
-    setStatus('🔒 Executing Flatten Operation...');
+    setStatus('🔒 Executing Flatten Operation on Captured Coordinates...');
     const flattenedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
 
     fabric.FabricImage.fromURL(flattenedDataUrl).then((flattenedImg) => {
@@ -267,17 +259,19 @@ export default function CanvasStudio() {
       canvas.add(flattenedImg);
       canvas.sendObjectToBack(flattenedImg);
       
-      activateToolMode('select');
+      // Cursor Mode Switching: Deactivate Selection Tool
+      switchCursorMode(canvas, 'select');
       canvas.renderAll();
       saveState(canvas);
-      setStatus('🔒 PDF Annotation Layer permanently flattened!');
+      setStatus('🔒 PDF Annotation Layer permanently merged into static page layer!');
     });
   };
 
+  // 3. POINT & REPLACE INITIALIZATION ON MOUSEUP
   const executePointReplaceOnMouseUp = (canvas, activeObj, bounds) => {
-    const replaceText = prompt(`Auto-Extracted PDF Text:\n\nEnter Replacement Text:`, bounds.extractedText);
+    const replaceText = prompt(`MouseUp Programmatic Initializer Captured Quads!\nPDF Content Stream Text: "${bounds.extractedText}"\n\nEnter Replacement Text:`, bounds.extractedText);
     if (replaceText === null) {
-      activateToolMode('select');
+      switchCursorMode(canvas, 'select');
       return;
     }
 
@@ -309,10 +303,42 @@ export default function CanvasStudio() {
     canvas.add(newTextObj);
     canvas.setActiveObject(newTextObj);
 
-    activateToolMode('select');
+    // Cursor Mode Switching: Deactivate Selection & Switch Cursor Mode back to select
+    switchCursorMode(canvas, 'select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus(`Substituted text with "${replaceText}"!`);
+    setStatus(`MouseUp Substituted PDF Content Stream Text with "${replaceText}"!`);
+  };
+
+  // --- DEDICATED VIDEO PORTAL CONTROLS ---
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimelineScrub = (e) => {
+    const newTime = parseFloat(e.target.value);
+    setTimelineSec(newTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  const handleVideoTimeUpdate = () => {
+    if (videoRef.current) {
+      setTimelineSec(videoRef.current.currentTime);
+    }
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    if (videoRef.current) {
+      setVideoDuration(videoRef.current.duration || 30);
+    }
   };
 
   const updateInspectorFromSelection = (obj) => {
@@ -377,19 +403,19 @@ export default function CanvasStudio() {
 
   const activateRedactMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🛡️ Redact Mode Active! Drag area on document to Redact & Overlay.');
+    setStatus('🛡️ Redact Mode Active! Highlight area on document to Redact & Overlay on MouseUp.');
     activateToolMode('redact');
   };
 
   const activateFlattenMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🔒 Flatten Mode Active! Click document to Flatten annotations.');
+    setStatus('🔒 Flatten Mode Active! Highlight area on document to Flatten annotations into page layer on MouseUp.');
     activateToolMode('flatten');
   };
 
   const activatePointToReplace = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🎯 Point & Replace Active! Click directly on text to Extract & Replace.');
+    setStatus('🎯 Point & Replace Active! Click directly on text to Extract & Replace on MouseUp.');
     activateToolMode('pointReplace');
   };
 
@@ -408,7 +434,7 @@ export default function CanvasStudio() {
     });
 
     const extractedSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Extracted Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    const replaceText = prompt(`Extracted PDF Content Stream Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
     let count = 0;
@@ -446,9 +472,9 @@ export default function CanvasStudio() {
     if (count > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${count} instance(s) in PDF stream!`);
+      setStatus(`Replaced ${count} instance(s) in PDF content stream!`);
     } else {
-      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target!`);
+      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target area!`);
     }
   };
 
@@ -507,7 +533,7 @@ export default function CanvasStudio() {
         fabricCanvas.add(textObj);
       });
     } catch (e) {
-      console.warn('PDF text extraction skipped:', e);
+      console.warn('PDF text content stream extraction skipped:', e);
     }
 
     activateToolMode('hand');
@@ -947,7 +973,7 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/render-canvas`, { frames, fps: 30 });
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
-      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setActivePortal('video');
       setStatus(`Animation exported! Playing in Video Portal...`);
     } catch (err) {
       setStatus(`Error rendering MP4: ${err.message}`);
@@ -996,7 +1022,7 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/stitch`, formData);
       const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(fileUrl);
-      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setActivePortal('video');
       setStatus(`Stitching Complete! Video loaded into Video Portal.`);
     } catch (err) {
       setStatus(`Error stitching: ${err.message}`);
@@ -1037,7 +1063,7 @@ export default function CanvasStudio() {
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
       setTranscriptionText(res.data.transcriptionText);
-      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setActivePortal('video');
       setStatus(`Subtitled video ready! Playing in Video Portal...`);
     } catch (err) {
       setStatus(`Error generating subtitled video: ${err.message}`);
