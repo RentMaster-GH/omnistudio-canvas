@@ -101,7 +101,7 @@ export default function CanvasStudio() {
     if (!obj || (obj.type !== 'i-text' && obj.type !== 'text')) return;
     setFontFamilyVal(obj.fontFamily || 'Arial');
     setFontSizeVal(obj.fontSize || 24);
-    setTextColorVal(obj.fill || '#0f172a');
+    setTextColorVal(obj.fill === 'rgba(15, 23, 42, 0.01)' ? '#0f172a' : (obj.fill || '#0f172a'));
     setTextBgColorVal(obj.textBackgroundColor || '#ffffff');
     setTextOpacityVal(obj.opacity !== undefined ? obj.opacity : 1.0);
     setIsBoldVal(obj.fontWeight === 'bold');
@@ -138,44 +138,46 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // --- AUTOMATED FIND & REPLACE WITH FULL SENTENCE EXTRACTION ---
+  // --- AUTOMATED FIND & REPLACE WITH NATIVE PDF TEXT STREAM MATCHING ---
   const handleFindAndReplace = () => {
     if (!fabricCanvas) return;
-    const findText = prompt('Enter text to Find in document (e.g., 2025):');
+    const findText = prompt('Enter text to Find in PDF document (e.g., Entity):', 'Entity');
     if (!findText) return;
 
     let targetObj = null;
     fabricCanvas.getObjects().forEach((obj) => {
-      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.includes(findText)) {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
         targetObj = obj;
       }
     });
 
     const extractedSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Extracted Text Found: "${extractedSentence}"\n\nEdit or Replace below:`, extractedSentence.replace(findText, '2026'));
+    const replaceText = prompt(`Found Text in PDF: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
-    const matchOriginal = confirm('Do you want to MATCH original font style?\n\nOK = Match Original Style\nCancel = Use Custom Text Inspector Style');
+    const matchOriginal = confirm('Do you want to MATCH original document font style?\n\nOK = Match Original Style\nCancel = Use Custom Text Inspector Style');
 
     let count = 0;
     fabricCanvas.getObjects().forEach((obj) => {
-      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.includes(findText)) {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
         const left = obj.left;
         const top = obj.top;
         const fontSz = matchOriginal ? (obj.fontSize || fontSizeVal) : fontSizeVal;
         const fontFam = matchOriginal ? (obj.fontFamily || fontFamilyVal) : fontFamilyVal;
-        const fontCol = matchOriginal ? (obj.fill || textColorVal) : textColorVal;
+        const fontCol = matchOriginal ? '#0f172a' : textColorVal;
 
+        // Auto Whiteout Box over old text in PDF background
         const whiteout = new fabric.Rect({
           left: left - 2,
           top: top - 2,
-          width: (obj.width * (obj.scaleX || 1)) + 10,
-          height: (obj.height * (obj.scaleY || 1)) + 5,
+          width: Math.max(100, (obj.width * (obj.scaleX || 1)) + 10),
+          height: (obj.height * (obj.scaleY || 1)) + 6,
           fill: '#ffffff',
           stroke: '#cbd5e1',
           strokeWidth: 1,
         });
 
+        // Overlay Replacement Text
         const newText = new fabric.IText(replaceText, {
           left: left,
           top: top,
@@ -184,8 +186,10 @@ export default function CanvasStudio() {
           fill: fontCol,
         });
 
+        fabricCanvas.remove(obj); // Remove original text placeholder
         fabricCanvas.add(whiteout);
         fabricCanvas.add(newText);
+        fabricCanvas.setActiveObject(newText);
         count++;
       }
     });
@@ -193,23 +197,24 @@ export default function CanvasStudio() {
     if (count > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Extracted and replaced ${count} instance(s)!`);
+      setStatus(`Replaced ${count} instance(s) of "${findText}"!`);
     } else {
-      alert(`No editable text matches for "${findText}". Use "Point & Replace" to click directly on scanned document text!`);
+      // Manual Click Fallback if scanned image
+      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on the target text area on the document!`);
     }
   };
 
   // --- INTERACTIVE POINT-TO-REPLACE ENGINE WITH AUTO-EXTRACTION ---
   const activatePointToReplace = () => {
     if (!fabricCanvas) return;
-    setStatus('🎯 Click directly on any text or document item to extract and edit it!');
+    setStatus('🎯 Click directly on any text or area on the PDF to extract and edit it!');
     setActiveTool('pointReplace');
 
     const clickHandler = (opt) => {
       const pointer = fabricCanvas.getPointer(opt.e);
       const targetObj = opt.target;
 
-      let extractedText = '';
+      let extractedText = 'Selected Text';
       let fontSize = fontSizeVal;
       let fontFamily = fontFamilyVal;
       let fill = textColorVal;
@@ -218,30 +223,26 @@ export default function CanvasStudio() {
       let boxWidth = 140;
       let boxHeight = 35;
 
-      // Auto-Extract text and properties if clicking canvas text object
       if (targetObj && (targetObj.type === 'i-text' || targetObj.type === 'text')) {
         extractedText = targetObj.text;
         fontSize = targetObj.fontSize || fontSize;
         fontFamily = targetObj.fontFamily || fontFamily;
-        fill = targetObj.fill || fill;
+        fill = targetObj.fill === 'rgba(15, 23, 42, 0.01)' ? '#0f172a' : (targetObj.fill || fill);
         targetLeft = targetObj.left;
         targetTop = targetObj.top;
         boxWidth = (targetObj.width * (targetObj.scaleX || 1)) + 10;
         boxHeight = (targetObj.height * (targetObj.scaleY || 1)) + 5;
-      } else {
-        extractedText = 'Extracted Text';
       }
 
-      // Prompt pre-filled with auto-extracted text
-      const replaceText = prompt(`Auto-Extracted Text from Clicked Area:\nEdit below:`, extractedText);
+      const replaceText = prompt(`Auto-Extracted Item Text:\nEdit or Replace below:`, extractedText);
       if (replaceText === null) {
         setActiveTool('select');
         return;
       }
 
-      const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Extracted Font Style\nCancel = Use Custom Inspector Style');
+      const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Document Style\nCancel = Use Custom Inspector Style');
 
-      // Auto Whiteout Box
+      // Auto Whiteout
       const whiteout = new fabric.Rect({
         left: targetLeft - 2,
         top: targetTop - 2,
@@ -261,6 +262,10 @@ export default function CanvasStudio() {
         fill: matchStyle ? fill : textColorVal,
       });
 
+      if (targetObj && (targetObj.type === 'i-text' || targetObj.type === 'text')) {
+        fabricCanvas.remove(targetObj);
+      }
+
       fabricCanvas.add(whiteout);
       fabricCanvas.add(newTextObj);
       fabricCanvas.setActiveObject(newTextObj);
@@ -269,10 +274,117 @@ export default function CanvasStudio() {
 
       setActiveTool('select');
       fabricCanvas.off('mouse:down', clickHandler);
-      setStatus(`Successfully extracted and edited "${replaceText}"!`);
+      setStatus(`Successfully replaced text with "${replaceText}"!`);
     };
 
     fabricCanvas.once('mouse:down', clickHandler);
+  };
+
+  // --- RENDER PDF & AUTO-EXTRACT PDF TEXT STREAM TO CANVAS ---
+  const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
+    if (!pdf || !fabricCanvas) return;
+
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.5 });
+
+    const tempCanvas = document.createElement('canvas');
+    const context = tempCanvas.getContext('2d');
+    tempCanvas.height = viewport.height;
+    tempCanvas.width = viewport.width;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    const imgData = tempCanvas.toDataURL('image/png');
+    const imgObj = await fabric.FabricImage.fromURL(imgData);
+
+    const canvasWidth = 820;
+    const canvasHeight = 480;
+
+    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+    const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
+    imgObj.scale(scale);
+
+    const left = (canvasWidth - imgObj.width * scale) / 2;
+    const top = (canvasHeight - imgObj.height * scale) / 2;
+
+    imgObj.set({ left, top, selectable: false });
+
+    fabricCanvas.clear();
+    fabricCanvas.add(imgObj);
+    fabricCanvas.sendObjectToBack(imgObj);
+
+    // AUTO-EXTRACT REAL PDF TEXT ITEMS INTO SELECTABLE CANVAS OBJECTS
+    try {
+      const textContent = await page.getTextContent();
+      textContent.items.forEach((item) => {
+        if (!item.str || !item.str.trim()) return;
+
+        const tx = item.transform;
+        const pdfX = tx[4] * (scale / 1.5) + left;
+        const pdfY = (viewport.height - tx[5]) * (scale / 1.5) + top - 12;
+        const fontSize = Math.max(12, (item.height || 14) * (scale / 1.5));
+
+        const textObj = new fabric.IText(item.str, {
+          left: pdfX,
+          top: pdfY,
+          fontSize: fontSize,
+          fontFamily: 'Arial',
+          fill: 'rgba(15, 23, 42, 0.01)', // Invisible selectable PDF text overlay
+          selectable: true,
+        });
+
+        fabricCanvas.add(textObj);
+      });
+    } catch (e) {
+      console.warn('PDF Text Content stream extraction skipped:', e);
+    }
+
+    fabricCanvas.renderAll();
+    saveState(fabricCanvas);
+  };
+
+  const handlePdfDocumentUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setStatus('Loading PDF & Extracting Text Stream...');
+    const fileArrayBuffer = await file.arrayBuffer();
+
+    try {
+      const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
+      setPdfDoc(loadedPdf);
+      setTotalPages(loadedPdf.numPages);
+      setPageNum(1);
+
+      generateThumbnails(loadedPdf);
+      await renderPdfPageOntoCanvas(loadedPdf, 1);
+      setStatus(`PDF & Text Stream Loaded! Page 1 of ${loadedPdf.numPages}`);
+    } catch (err) {
+      setStatus(`Error loading PDF: ${err.message}`);
+    }
+  };
+
+  const generateThumbnails = async (pdf) => {
+    const thumbs = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 0.2 });
+      const tempCanvas = document.createElement('canvas');
+      const context = tempCanvas.getContext('2d');
+      tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      thumbs.push(tempCanvas.toDataURL('image/png'));
+    }
+    setThumbnails(thumbs);
+  };
+
+  const changePdfPage = async (newPage) => {
+    if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
+    setPageNum(newPage);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
   const handlePrint = () => {
@@ -452,87 +564,6 @@ export default function CanvasStudio() {
 
     fabricCanvas.renderAll();
     saveState();
-  };
-
-  const handlePdfDocumentUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setStatus('Loading PDF into Document Navigator...');
-    const fileArrayBuffer = await file.arrayBuffer();
-
-    try {
-      const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
-      setPdfDoc(loadedPdf);
-      setTotalPages(loadedPdf.numPages);
-      setPageNum(1);
-
-      generateThumbnails(loadedPdf);
-      await renderPdfPageOntoCanvas(loadedPdf, 1);
-      setStatus(`PDF Loaded! Previewing Page 1 of ${loadedPdf.numPages}`);
-    } catch (err) {
-      setStatus(`Error loading PDF: ${err.message}`);
-    }
-  };
-
-  const generateThumbnails = async (pdf) => {
-    const thumbs = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 0.2 });
-      const tempCanvas = document.createElement('canvas');
-      const context = tempCanvas.getContext('2d');
-      tempCanvas.height = viewport.height;
-      tempCanvas.width = viewport.width;
-
-      await page.render({ canvasContext: context, viewport }).promise;
-      thumbs.push(tempCanvas.toDataURL('image/png'));
-    }
-    setThumbnails(thumbs);
-  };
-
-  const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
-    if (!pdf || !fabricCanvas) return;
-
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.5 });
-
-    const tempCanvas = document.createElement('canvas');
-    const context = tempCanvas.getContext('2d');
-    tempCanvas.height = viewport.height;
-    tempCanvas.width = viewport.width;
-
-    await page.render({ canvasContext: context, viewport }).promise;
-
-    const imgData = tempCanvas.toDataURL('image/png');
-    const imgObj = await fabric.FabricImage.fromURL(imgData);
-
-    const canvasWidth = 820;
-    const canvasHeight = 480;
-
-    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
-
-    const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
-    imgObj.scale(scale);
-
-    const left = (canvasWidth - imgObj.width * scale) / 2;
-    const top = (canvasHeight - imgObj.height * scale) / 2;
-
-    imgObj.set({ left, top, selectable: true, hasControls: true });
-
-    fabricCanvas.clear();
-    fabricCanvas.add(imgObj);
-    fabricCanvas.sendObjectToBack(imgObj);
-    fabricCanvas.setActiveObject(imgObj);
-    fabricCanvas.renderAll();
-
-    saveState(fabricCanvas);
-  };
-
-  const changePdfPage = async (newPage) => {
-    if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
-    setPageNum(newPage);
-    await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
   const addText = () => {
