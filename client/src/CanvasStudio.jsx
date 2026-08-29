@@ -26,19 +26,15 @@ export default function CanvasStudio() {
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready');
 
-  // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight' | 'pointReplace'
   const [activeTool, setActiveTool] = useState('select');
   const [activeDropdown, setActiveDropdown] = useState(null);
 
-  // Search & Signature Modals
   const [searchQuery, setSearchQuery] = useState('');
   const [signatureName, setSignatureName] = useState('John Doe');
 
-  // System State Management (Undo / Redo Stack)
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
-  // Text Inspector State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
   const [fontSizeVal, setFontSizeVal] = useState(24);
   const [textColorVal, setTextColorVal] = useState('#0f172a');
@@ -49,7 +45,6 @@ export default function CanvasStudio() {
   const [isUnderlineVal, setIsUnderlineVal] = useState(false);
   const [textAlignVal, setTextAlignVal] = useState('left');
 
-  // PDF Preview & Page Thumbnail State
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pageNum, setPageNum] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -62,7 +57,6 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
-  // Panning State for Hand Tool
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
@@ -116,7 +110,6 @@ export default function CanvasStudio() {
     setTextAlignVal(obj.textAlign || 'left');
   };
 
-  // --- UNDO / REDO ENGINE ---
   const saveState = (targetCanvas = fabricCanvas) => {
     if (!targetCanvas) return;
     const json = JSON.stringify(targetCanvas.toJSON());
@@ -145,12 +138,21 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // --- AUTOMATED FIND & REPLACE ENGINE ---
+  // --- AUTOMATED FIND & REPLACE WITH FULL SENTENCE EXTRACTION ---
   const handleFindAndReplace = () => {
     if (!fabricCanvas) return;
     const findText = prompt('Enter text to Find in document (e.g., 2025):');
     if (!findText) return;
-    const replaceText = prompt(`Replace "${findText}" with:`, '2026');
+
+    let targetObj = null;
+    fabricCanvas.getObjects().forEach((obj) => {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.includes(findText)) {
+        targetObj = obj;
+      }
+    });
+
+    const extractedSentence = targetObj ? targetObj.text : findText;
+    const replaceText = prompt(`Extracted Text Found: "${extractedSentence}"\n\nEdit or Replace below:`, extractedSentence.replace(findText, '2026'));
     if (replaceText === null) return;
 
     const matchOriginal = confirm('Do you want to MATCH original font style?\n\nOK = Match Original Style\nCancel = Use Custom Text Inspector Style');
@@ -164,7 +166,6 @@ export default function CanvasStudio() {
         const fontFam = matchOriginal ? (obj.fontFamily || fontFamilyVal) : fontFamilyVal;
         const fontCol = matchOriginal ? (obj.fill || textColorVal) : textColorVal;
 
-        // Auto Whiteout Box
         const whiteout = new fabric.Rect({
           left: left - 2,
           top: top - 2,
@@ -175,8 +176,7 @@ export default function CanvasStudio() {
           strokeWidth: 1,
         });
 
-        // Replacement Text Box
-        const newText = new fabric.IText(obj.text.replace(findText, replaceText), {
+        const newText = new fabric.IText(replaceText, {
           left: left,
           top: top,
           fontSize: fontSz,
@@ -193,64 +193,88 @@ export default function CanvasStudio() {
     if (count > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${count} instance(s) of "${findText}" with "${replaceText}"!`);
+      setStatus(`Extracted and replaced ${count} instance(s)!`);
     } else {
-      alert(`No editable text matches for "${findText}". If this is a scanned PDF image, use "Point & Replace" to click directly on the area!`);
+      alert(`No editable text matches for "${findText}". Use "Point & Replace" to click directly on scanned document text!`);
     }
   };
 
-  // --- INTERACTIVE POINT-TO-REPLACE ENGINE (FOR SCANNED / ILLEGIBLE DOCUMENTS) ---
+  // --- INTERACTIVE POINT-TO-REPLACE ENGINE WITH AUTO-EXTRACTION ---
   const activatePointToReplace = () => {
     if (!fabricCanvas) return;
-    setStatus('🎯 Click anywhere on the document to Whiteout and Replace text!');
+    setStatus('🎯 Click directly on any text or document item to extract and edit it!');
     setActiveTool('pointReplace');
 
     const clickHandler = (opt) => {
       const pointer = fabricCanvas.getPointer(opt.e);
-      
-      const replaceText = prompt('Enter replacement text for clicked area:');
-      if (!replaceText) {
+      const targetObj = opt.target;
+
+      let extractedText = '';
+      let fontSize = fontSizeVal;
+      let fontFamily = fontFamilyVal;
+      let fill = textColorVal;
+      let targetLeft = pointer.x;
+      let targetTop = pointer.y;
+      let boxWidth = 140;
+      let boxHeight = 35;
+
+      // Auto-Extract text and properties if clicking canvas text object
+      if (targetObj && (targetObj.type === 'i-text' || targetObj.type === 'text')) {
+        extractedText = targetObj.text;
+        fontSize = targetObj.fontSize || fontSize;
+        fontFamily = targetObj.fontFamily || fontFamily;
+        fill = targetObj.fill || fill;
+        targetLeft = targetObj.left;
+        targetTop = targetObj.top;
+        boxWidth = (targetObj.width * (targetObj.scaleX || 1)) + 10;
+        boxHeight = (targetObj.height * (targetObj.scaleY || 1)) + 5;
+      } else {
+        extractedText = 'Extracted Text';
+      }
+
+      // Prompt pre-filled with auto-extracted text
+      const replaceText = prompt(`Auto-Extracted Text from Clicked Area:\nEdit below:`, extractedText);
+      if (replaceText === null) {
         setActiveTool('select');
         return;
       }
 
-      const matchStyle = confirm('Match standard document style?\n\nOK = Standard Document Style (Arial 22px)\nCancel = Use Custom Inspector Style');
+      const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Extracted Font Style\nCancel = Use Custom Inspector Style');
 
-      // Auto Whiteout at clicked location
+      // Auto Whiteout Box
       const whiteout = new fabric.Rect({
-        left: pointer.x - 4,
-        top: pointer.y - 4,
-        width: Math.max(120, replaceText.length * 12),
-        height: 32,
+        left: targetLeft - 2,
+        top: targetTop - 2,
+        width: Math.max(boxWidth, replaceText.length * (fontSize * 0.5) + 15),
+        height: boxHeight,
         fill: '#ffffff',
         stroke: '#cbd5e1',
         strokeWidth: 1,
       });
 
-      // Replacement Text at clicked location
-      const newText = new fabric.IText(replaceText, {
-        left: pointer.x,
-        top: pointer.y,
-        fontSize: matchStyle ? 22 : fontSizeVal,
-        fontFamily: matchStyle ? 'Arial' : fontFamilyVal,
-        fill: matchStyle ? '#0f172a' : textColorVal,
+      // Replacement Text
+      const newTextObj = new fabric.IText(replaceText, {
+        left: targetLeft,
+        top: targetTop,
+        fontSize: matchStyle ? fontSize : fontSizeVal,
+        fontFamily: matchStyle ? fontFamily : fontFamilyVal,
+        fill: matchStyle ? fill : textColorVal,
       });
 
       fabricCanvas.add(whiteout);
-      fabricCanvas.add(newText);
-      fabricCanvas.setActiveObject(newText);
+      fabricCanvas.add(newTextObj);
+      fabricCanvas.setActiveObject(newTextObj);
       fabricCanvas.renderAll();
       saveState();
 
       setActiveTool('select');
       fabricCanvas.off('mouse:down', clickHandler);
-      setStatus(`Replaced text at target location!`);
+      setStatus(`Successfully extracted and edited "${replaceText}"!`);
     };
 
     fabricCanvas.once('mouse:down', clickHandler);
   };
 
-  // --- TOP GLOBAL ACTIONS (PRINT, SHARE, SEARCH, DONE) ---
   const handlePrint = () => {
     if (!fabricCanvas) return;
     const dataURL = fabricCanvas.toDataURL({ format: 'png' });
@@ -300,7 +324,6 @@ export default function CanvasStudio() {
     alert('🎉 Document editing is complete! You can download or export your page.');
   };
 
-  // --- ANNOTATION TOOLS (CHECK, CROSS, SIGN, LINK) ---
   const addCheckmark = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -357,7 +380,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // --- MORE TOOLS ENGINE ---
   const handleCropTool = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
@@ -833,7 +855,7 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON (INCLUDES FIND & REPLACE, POINT & REPLACE, CHECK, CROSS, SIGN, LINK) */}
+      {/* 2. SECONDARY TOOL RIBBON (INCLUDES AUTO-EXTRACT FIND & REPLACE + POINT & REPLACE) */}
       <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
@@ -852,7 +874,7 @@ export default function CanvasStudio() {
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool (Click & Drag View)" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -860,13 +882,13 @@ export default function CanvasStudio() {
                 <Type size={14} /> Text
               </button>
 
-              {/* AUTOMATED FIND & REPLACE TOOL */}
+              {/* AUTOMATED FIND & REPLACE WITH FULL SENTENCE EXTRACTION */}
               <button title="Automated Find & Replace Text" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
                 <RefreshCw size={14} /> Find & Replace
               </button>
 
-              {/* INTERACTIVE POINT-TO-REPLACE TOOL (FOR SCANNED / ILLEGIBLE DOCS) */}
-              <button title="Click directly on document area to Whiteout & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+              {/* AUTO-EXTRACT POINT & REPLACE TOOL */}
+              <button title="Click directly on document item to Auto-Extract and Edit" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
                 <Target size={14} /> Point & Replace
               </button>
 
