@@ -7,7 +7,7 @@ import {
   Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser,
   ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
-  AlignLeft, AlignCenter, AlignRight, AlignVerticalTop, AlignVerticalCenter, AlignVerticalBottom
+  AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -27,7 +27,6 @@ export default function CanvasStudio() {
   const [activeTool, setActiveTool] = useState('select');
   const [activeDropdown, setActiveDropdown] = useState(null);
 
-  // System State Management (Undo / Redo Stack)
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
@@ -42,7 +41,6 @@ export default function CanvasStudio() {
   const [isUnderlineVal, setIsUnderlineVal] = useState(false);
   const [textAlignVal, setTextAlignVal] = useState('left');
 
-  // PDF Preview & Thumbnail State
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pageNum, setPageNum] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -55,7 +53,6 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
-  // Initialize Canvas & Selection Event Listeners
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
       width: 820,
@@ -63,7 +60,6 @@ export default function CanvasStudio() {
       backgroundColor: '#ffffff',
     });
 
-    // Auto-update Inspector controls when clicking existing text on canvas
     canvas.on('selection:created', (e) => updateInspectorFromSelection(e.selected[0]));
     canvas.on('selection:updated', (e) => updateInspectorFromSelection(e.selected[0]));
 
@@ -86,7 +82,6 @@ export default function CanvasStudio() {
     setTextAlignVal(obj.textAlign || 'left');
   };
 
-  // --- UNDO / REDO ENGINE ---
   const saveState = (targetCanvas = fabricCanvas) => {
     if (!targetCanvas) return;
     const json = JSON.stringify(targetCanvas.toJSON());
@@ -115,7 +110,6 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // --- TEXT INSPECTOR PROPERTY MUTATION ENGINE ---
   const updateActiveTextProp = (prop, value) => {
     if (!fabricCanvas) return;
     const activeObject = fabricCanvas.getActiveObject();
@@ -126,7 +120,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // Vertical Text Alignment
   const alignTextVertical = (pos) => {
     if (!fabricCanvas) return;
     const activeObject = fabricCanvas.getActiveObject();
@@ -736,10 +729,10 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Align Text Top, Middle, Bottom */}
-        <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignVerticalTop size={13} /></button>
-        <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignVerticalCenter size={13} /></button>
-        <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignVerticalBottom size={13} /></button>
+        {/* Align Text Top, Middle, Bottom (Corrected Lucide icons) */}
+        <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignStartVertical size={13} /></button>
+        <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignCenterVertical size={13} /></button>
+        <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignEndVertical size={13} /></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
