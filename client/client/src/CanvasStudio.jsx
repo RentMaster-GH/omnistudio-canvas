@@ -24,6 +24,21 @@ const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
   : 'https://omnistudio-canvas-api.onrender.com/api';
 
+/**
+ * Helper: Guarantees a strict 7-character #RRGGBB hex string to prevent 
+ * React DOM crashes inside <input type="color" />
+ */
+const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
+  if (!color || typeof color !== 'string') return fallbackHex;
+  if (color.startsWith('#')) {
+    if (color.length === 7) return color;
+    if (color.length === 4) {
+      return '#' + color[1] + color[1] + color[2] + color[2] + color[3] + color[3];
+    }
+  }
+  return fallbackHex;
+};
+
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
@@ -173,15 +188,27 @@ export default function CanvasStudio() {
     });
 
     canvas.on('selection:created', (e) => {
-      const selectedObj = e.selected[0];
-      setActiveEditingObject(selectedObj);
-      updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:created', err);
+      }
     });
 
     canvas.on('selection:updated', (e) => {
-      const selectedObj = e.selected[0];
-      setActiveEditingObject(selectedObj);
-      updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:updated', err);
+      }
     });
 
     canvas.on('selection:cleared', () => {
@@ -189,7 +216,11 @@ export default function CanvasStudio() {
     });
 
     canvas.on('text:changed', () => {
-      saveState(canvas);
+      try {
+        saveState(canvas);
+      } catch (err) {
+        console.error('Error on text:changed', err);
+      }
     });
 
     setFabricCanvas(canvas);
@@ -198,24 +229,28 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
+  // --- SAFE ADD TEXT FUNCTION ---
   const addText = () => {
     try {
-      if (!isEditMode) initializeEditProcess();
+      if (!isEditMode) setIsEditMode(true);
       if (!fabricCanvas) return;
       
       activateToolMode('select');
 
+      const safeFill = ensureValidHexColor(textColorVal, '#0f172a');
+      const safeBg = textBgColorVal && textBgColorVal.startsWith('#') ? textBgColorVal : 'transparent';
+
       const textObj = new fabric.IText('Type text here...', { 
-        left: 150, 
-        top: 150, 
-        fontSize: fontSizeVal || 24, 
+        left: 200, 
+        top: 200, 
+        fontSize: Math.max(12, fontSizeVal || 24), 
         fontFamily: fontFamilyVal || 'Arial',
-        fill: textColorVal || '#0f172a',
-        textBackgroundColor: textBgColorVal === '#ffffff' ? 'transparent' : textBgColorVal,
+        fill: safeFill,
+        textBackgroundColor: safeBg === '#ffffff' ? 'transparent' : safeBg,
         opacity: textOpacityVal || 1.0,
         fontWeight: isBoldVal ? 'bold' : 'normal',
         fontStyle: isItalicVal ? 'italic' : 'normal',
-        underline: isUnderlineVal,
+        underline: !!isUnderlineVal,
         textAlign: textAlignVal || 'left',
         lineHeight: lineHeightVal || 1.16,
         charSpacing: charSpacingVal || 0,
@@ -232,6 +267,30 @@ export default function CanvasStudio() {
     } catch (err) {
       console.error('Error adding text object:', err);
       setStatus(`Error adding text: ${err.message}`);
+    }
+  };
+
+  const updateInspectorFromSelection = (obj) => {
+    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text' && obj.type !== 'textbox')) return;
+    try {
+      if (obj.fontFamily) setFontFamilyVal(obj.fontFamily);
+      if (obj.fontSize) setFontSizeVal(obj.fontSize);
+      if (obj.lineHeight) setLineHeightVal(obj.lineHeight);
+      if (obj.charSpacing !== undefined) setCharSpacingVal(obj.charSpacing);
+      
+      const safeFill = ensureValidHexColor(obj.fill, '#0f172a');
+      setTextColorVal(safeFill);
+
+      const safeBg = ensureValidHexColor(obj.textBackgroundColor, '#ffffff');
+      setTextBgColorVal(safeBg);
+
+      if (obj.opacity !== undefined) setTextOpacityVal(obj.opacity);
+      setIsBoldVal(obj.fontWeight === 'bold');
+      setIsItalicVal(obj.fontStyle === 'italic');
+      setIsUnderlineVal(!!obj.underline);
+      if (obj.textAlign) setTextAlignVal(obj.textAlign);
+    } catch (err) {
+      console.error('Inspector update error:', err);
     }
   };
 
@@ -528,7 +587,7 @@ export default function CanvasStudio() {
         top: pointer.y,
         fontSize: fontSizeVal,
         fontFamily: fontFamilyVal,
-        fill: textColorVal,
+        fill: ensureValidHexColor(textColorVal, '#0f172a'),
       });
 
       canvas.add(newTextBox);
@@ -560,21 +619,6 @@ export default function CanvasStudio() {
 
   const handleVideoLoadedMetadata = () => {
     if (videoRef.current) setVideoDuration(videoRef.current.duration || 30);
-  };
-
-  const updateInspectorFromSelection = (obj) => {
-    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text')) return;
-    setFontFamilyVal(obj.fontFamily || 'Arial');
-    setFontSizeVal(obj.fontSize || 24);
-    setLineHeightVal(obj.lineHeight || 1.16);
-    setCharSpacingVal(obj.charSpacing || 0);
-    setTextColorVal(obj.fill === 'rgba(15, 23, 42, 0.01)' ? '#0f172a' : (obj.fill || '#0f172a'));
-    setTextBgColorVal(obj.textBackgroundColor || '#ffffff');
-    setTextOpacityVal(obj.opacity !== undefined ? obj.opacity : 1.0);
-    setIsBoldVal(obj.fontWeight === 'bold');
-    setIsItalicVal(obj.fontStyle === 'italic');
-    setIsUnderlineVal(!!obj.underline);
-    setTextAlignVal(obj.textAlign || 'left');
   };
 
   const initializeEditProcess = () => {
@@ -905,7 +949,7 @@ export default function CanvasStudio() {
   const updateActiveTextProp = (prop, value) => {
     if (!fabricCanvas) return;
     const activeObject = fabricCanvas.getActiveObject();
-    if (activeObject && (activeObject.type === 'i-text' || activeObject.type === 'text')) {
+    if (activeObject && (activeObject.type === 'i-text' || activeObject.type === 'text' || activeObject.type === 'textbox')) {
       activeObject.set(prop, value);
       fabricCanvas.renderAll();
       saveState();
@@ -915,7 +959,7 @@ export default function CanvasStudio() {
   const changeTextCase = (caseType) => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text')) {
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
       if (caseType === 'upper') activeObj.set('text', activeObj.text.toUpperCase());
       if (caseType === 'lower') activeObj.set('text', activeObj.text.toLowerCase());
       fabricCanvas.renderAll();
@@ -1491,13 +1535,23 @@ export default function CanvasStudio() {
         {/* Font Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Font Color:
-          <input type="color" value={textColorVal} onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+          <input 
+            type="color" 
+            value={ensureValidHexColor(textColorVal, '#0f172a')} 
+            onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} 
+            style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+          />
         </label>
 
         {/* Background Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           BG Color:
-          <input type="color" value={textBgColorVal} onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+          <input 
+            type="color" 
+            value={ensureValidHexColor(textBgColorVal, '#ffffff')} 
+            onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} 
+            style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+          />
         </label>
       </div>
 
