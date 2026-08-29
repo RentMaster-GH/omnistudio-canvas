@@ -1,0 +1,235 @@
+{
+  "bundleVersion": "1.0.0",
+  "generatedAt": "2026-08-27T19:49:44.008Z",
+  "document": {
+    "version": "1.0.0",
+    "dimensions": {
+      "width": 1920,
+      "height": 1080,
+      "unit": "px",
+      "dpi": 72
+    },
+    "colorSpace": "CMYK",
+    "rootNodeIds": [
+      "bg_card",
+      "pdf_page_1",
+      "ocr_header",
+      "bright_card",
+      "green_screen_card"
+    ],
+    "nodes": {
+      "bg_card": {
+        "id": "bg_card",
+        "name": "Dark Stage Background",
+        "type": "vector_path",
+        "visible": true,
+        "locked": false,
+        "transform": {
+          "x": 0,
+          "y": 0,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "skewX": 0,
+          "skewY": 0,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "style": {
+          "opacity": 1,
+          "blendMode": "normal",
+          "fill": {
+            "color": "#111827"
+          }
+        },
+        "data": {
+          "svgPathData": "M 0 0 L 1920 0 L 1920 1080 L 0 1080 Z",
+          "fillRule": "nonzero"
+        }
+      },
+      "pdf_page_1": {
+        "id": "pdf_page_1",
+        "name": "Tax Form W-9 (Page 1)",
+        "type": "pdf_page_surface",
+        "visible": true,
+        "locked": false,
+        "transform": {
+          "x": 80,
+          "y": 80,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "skewX": 0,
+          "skewY": 0,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "style": {
+          "opacity": 1,
+          "blendMode": "normal"
+        },
+        "data": {
+          "pdfAssetId": "w9_form_2026.pdf",
+          "pageIndex": 1,
+          "renderAsVector": true,
+          "formFields": [
+            {
+              "id": "field_name",
+              "type": "text_input",
+              "value": "Alex Papas",
+              "rect": [
+                40,
+                140,
+                320,
+                36
+              ]
+            },
+            {
+              "id": "field_agree",
+              "type": "checkbox",
+              "value": "true",
+              "rect": [
+                40,
+                210,
+                24,
+                24
+              ]
+            },
+            {
+              "id": "field_signature",
+              "type": "signature",
+              "value": "Verified Signature: Alex P.",
+              "rect": [
+                40,
+                260,
+                280,
+                50
+              ]
+            }
+          ]
+        }
+      },
+      "ocr_header": {
+        "id": "ocr_header",
+        "name": "OCR Text Reflow Overlay",
+        "type": "text_block",
+        "visible": true,
+        "locked": false,
+        "transform": {
+          "x": 120,
+          "y": 140,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "skewX": 0,
+          "skewY": 0,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "style": {
+          "opacity": 1,
+          "blendMode": "normal",
+          "fill": {
+            "color": "#111111"
+          }
+        },
+        "data": {
+          "text": "UNITED STATES INTERNAL REVENUE SERVICE FORM",
+          "fontFamily": "Courier New",
+          "fontSize": 18,
+          "fontWeight": 700,
+          "lineHeight": 1.2,
+          "letterSpacing": 0,
+          "align": "left",
+          "pdfReflow": {
+            "isScannedOcr": true,
+            "originalBoundingBox": [
+              0,
+              0,
+              500,
+              30
+            ]
+          }
+        }
+      },
+      "bright_card": {
+        "id": "bright_card",
+        "name": "GPU Brightened Card",
+        "type": "vector_path",
+        "visible": true,
+        "locked": false,
+        "transform": {
+          "x": 800,
+          "y": 80,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "skewX": 0,
+          "skewY": 0,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "style": {
+          "opacity": 1,
+          "blendMode": "normal",
+          "fill": {
+            "color": "#8B5CF6"
+          },
+          "filters": [
+            {
+              "type": "brightness",
+              "value": 1.6
+            },
+            {
+              "type": "contrast",
+              "value": 1.4
+            }
+          ]
+        },
+        "data": {
+          "svgPathData": "M 0 0 L 350 0 L 350 250 L 0 250 Z",
+          "fillRule": "nonzero"
+        }
+      },
+      "green_screen_card": {
+        "id": "green_screen_card",
+        "name": "Chroma Key Filtered Box",
+        "type": "vector_path",
+        "visible": true,
+        "locked": false,
+        "transform": {
+          "x": 800,
+          "y": 380,
+          "rotation": 0,
+          "scaleX": 1,
+          "scaleY": 1,
+          "skewX": 0,
+          "skewY": 0,
+          "anchorX": 0,
+          "anchorY": 0
+        },
+        "style": {
+          "opacity": 1,
+          "blendMode": "normal",
+          "fill": {
+            "color": "#00FF00"
+          },
+          "filters": [
+            {
+              "type": "chroma_key",
+              "value": "#00FF00"
+            }
+          ]
+        },
+        "data": {
+          "svgPathData": "M 0 0 L 350 0 L 350 250 L 0 250 Z",
+          "fillRule": "nonzero"
+        }
+      }
+    }
+  },
+  "nodeCount": 5,
+  "assetsRequired": [
+    "w9_form_2026.pdf"
+  ]
+}

@@ -1,0 +1,5 @@
+node_modules
+target
+omni_engine/target
+.git
+npm-debug.log

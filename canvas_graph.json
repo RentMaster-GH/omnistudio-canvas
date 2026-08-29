@@ -1,0 +1,119 @@
+{
+  "version": "1.0.0",
+  "dimensions": {
+    "width": 1920,
+    "height": 1080,
+    "unit": "px",
+    "dpi": 72
+  },
+  "colorSpace": "sRGB",
+  "rootNodeIds": [
+    "bg_stage",
+    "group_layout",
+    "liquid_card",
+    "blur_card"
+  ],
+  "nodes": {
+    "bg_stage": {
+      "id": "bg_stage",
+      "name": "Dark Stage",
+      "type": "vector_path",
+      "visible": true,
+      "locked": false,
+      "transform": { "x": 0, "y": 0, "rotation": 0, "scaleX": 1, "scaleY": 1, "skewX": 0, "skewY": 0, "anchorX": 0, "anchorY": 0 },
+      "style": { "opacity": 1, "blendMode": "normal", "fill": { "color": "#09090b" } },
+      "data": { "svgPathData": "M 0 0 L 1920 0 L 1920 1080 L 0 1080 Z" }
+    },
+    "group_layout": {
+      "id": "group_layout",
+      "name": "Auto Layout Container",
+      "type": "group",
+      "visible": true,
+      "locked": false,
+      "transform": {
+        "x": 100,
+        "y": 80,
+        "rotation": 0,
+        "scaleX": 1,
+        "scaleY": 1,
+        "skewX": 0,
+        "skewY": 0,
+        "anchorX": 0,
+        "anchorY": 0
+      },
+      "layout": {
+        "mode": "flex_row",
+        "gap": 30,
+        "padding": [20, 20, 20, 20],
+        "alignItems": "center",
+        "justifyContent": "start"
+      },
+      "style": {
+        "opacity": 1,
+        "blendMode": "normal",
+        "fill": { "color": "#2a2a2a" },
+        "stroke": { "color": "#0066FF", "width": 2, "align": "inside", "cap": "butt" }
+      },
+      "data": {
+        "childrenNodeIds": [
+          "node_1",
+          "node_2"
+        ]
+      }
+    },
+    "node_1": {
+      "id": "node_1",
+      "name": "Header Text",
+      "type": "text_block",
+      "visible": true,
+      "locked": false,
+      "transform": { "x": 0, "y": 0, "rotation": 0, "scaleX": 1, "scaleY": 1, "skewX": 0, "skewY": 0, "anchorX": 0, "anchorY": 0 },
+      "style": { "opacity": 1, "blendMode": "normal", "fill": { "color": "#FFFFFF" } },
+      "data": { "text": "OmniStudio Engine Active", "fontFamily": "Arial", "fontSize": 32, "fontWeight": 700, "lineHeight": 1.2, "letterSpacing": 0, "align": "left" }
+    },
+    "node_2": {
+      "id": "node_2",
+      "name": "Background Card",
+      "type": "vector_path",
+      "visible": true,
+      "locked": false,
+      "transform": { "x": 0, "y": 0, "rotation": 0, "scaleX": 1, "scaleY": 1, "skewX": 0, "skewY": 0, "anchorX": 0, "anchorY": 0 },
+      "style": { "opacity": 1, "blendMode": "normal", "fill": { "color": "#FF5733" } },
+      "data": { "svgPathData": "M 0 0 L 200 0 L 200 100 L 0 100 Z", "fillRule": "nonzero" }
+    },
+    "liquid_card": {
+      "id": "liquid_card",
+      "name": "🌊 Liquid Wave Distortion",
+      "type": "vector_path",
+      "visible": true,
+      "locked": false,
+      "transform": { "x": 100, "y": 300, "rotation": 0, "scaleX": 1, "scaleY": 1, "skewX": 0, "skewY": 0, "anchorX": 0, "anchorY": 0 },
+      "style": {
+        "opacity": 1,
+        "blendMode": "normal",
+        "fill": { "color": "#06B6D4" },
+        "filters": [
+          { "type": "liquid_distortion", "value": 15.0 }
+        ]
+      },
+      "data": { "svgPathData": "M 0 0 L 400 0 L 400 300 L 0 300 Z" }
+    },
+    "blur_card": {
+      "id": "blur_card",
+      "name": "🔮 Gaussian Blur Glass",
+      "type": "vector_path",
+      "visible": true,
+      "locked": false,
+      "transform": { "x": 600, "y": 300, "rotation": 0, "scaleX": 1, "scaleY": 1, "skewX": 0, "skewY": 0, "anchorX": 0, "anchorY": 0 },
+      "style": {
+        "opacity": 1,
+        "blendMode": "normal",
+        "fill": { "color": "#EC4899" },
+        "filters": [
+          { "type": "blur", "value": 12.0 }
+        ]
+      },
+      "data": { "svgPathData": "M 0 0 L 400 0 L 400 300 L 0 300 Z" }
+    }
+  }
+}

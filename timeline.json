@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "fps": 60,
+  "durationFrames": 120,
+  "tracks": [
+    {
+      "nodeId": "group_layout",
+      "tracks": [
+        {
+          "property": "transform.x",
+          "keyframes": [
+            { "frame": 0, "value": 100, "easing": "easeInOut" },
+            { "frame": 60, "value": 700, "easing": "easeInOut" },
+            { "frame": 120, "value": 100, "easing": "easeInOut" }
+          ]
+        },
+        {
+          "property": "transform.y",
+          "keyframes": [
+            { "frame": 0, "value": 100, "easing": "easeInOut" },
+            { "frame": 60, "value": 400, "easing": "easeInOut" },
+            { "frame": 120, "value": 100, "easing": "easeInOut" }
+          ]
+        }
+      ]
+    }
+  ]
+}
