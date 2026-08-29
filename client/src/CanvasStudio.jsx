@@ -4,12 +4,12 @@ import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
-  Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser,
-  ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
+  Music, Play, Pause, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
+  ChevronRight, Eye, PanelLeftClose, PanelLeftOpen, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target, Edit3, ShieldAlert, Lock
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -21,6 +21,8 @@ const API_BASE = window.location.hostname === 'localhost'
 
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
+  const videoRef = useRef(null); // Dedicated Video Player Ref
+
   const [fabricCanvas, setFabricCanvas] = useState(null);
   const [activePortal, setActivePortal] = useState('pdf');
   const [darkMode, setDarkMode] = useState(true);
@@ -56,7 +58,12 @@ export default function CanvasStudio() {
   const [thumbnails, setThumbnails] = useState([]);
 
   const [zoomLevel, setZoomLevel] = useState(1.0);
+
+  // Dedicated Video Portal & Timeline State
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
+  const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(30);
   const [transcriptionText, setTranscriptionText] = useState('');
 
   const [imgBrightness, setImgBrightness] = useState(1);
@@ -104,7 +111,6 @@ export default function CanvasStudio() {
         canvas.defaultCursor = 'grab';
         canvas.setCursor('grab');
       } else {
-        // MOUSEUP / POINTERUP EVENT INITIALIZER & CURSOR MODE SWITCHER
         handleMouseUpInitializer(canvas, opt);
       }
     });
@@ -118,7 +124,66 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- MOUSEUP / POINTERUP EVENT INITIALIZER & CURSOR MODE SWITCHING ENGINE ---
+  // --- UNDO & REDO HANDLERS ---
+  const handleUndo = () => {
+    if (undoStack.length <= 1 || !fabricCanvas) return;
+    const current = undoStack[undoStack.length - 1];
+    const newUndo = undoStack.slice(0, undoStack.length - 1);
+    const previous = newUndo[newUndo.length - 1];
+
+    setRedoStack((prev) => [current, ...prev]);
+    setUndoStack(newUndo);
+
+    fabricCanvas.loadFromJSON(previous, () => {
+      fabricCanvas.renderAll();
+    });
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !fabricCanvas) return;
+    const next = redoStack[0];
+    const newRedo = redoStack.slice(1);
+
+    setUndoStack((prev) => [...prev, next]);
+    setRedoStack(newRedo);
+
+    fabricCanvas.loadFromJSON(next, () => {
+      fabricCanvas.renderAll();
+    });
+  };
+
+  // --- DEDICATED VIDEO PORTAL & TIMELINE CONTROLS ---
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimelineScrub = (e) => {
+    const newTime = parseFloat(e.target.value);
+    setTimelineSec(newTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  const handleVideoTimeUpdate = () => {
+    if (videoRef.current) {
+      setTimelineSec(videoRef.current.currentTime);
+    }
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    if (videoRef.current) {
+      setVideoDuration(videoRef.current.duration || 30);
+    }
+  };
+
+  // --- MOUSEUP INITIALIZER ENGINE ---
   const handleMouseUpInitializer = (canvas, opt) => {
     const currentMode = activeToolRef.current;
     if (currentMode === 'hand' || isPanningRef.current) return;
@@ -126,7 +191,6 @@ export default function CanvasStudio() {
     const pointer = canvas.getPointer(opt.e);
     const activeObj = canvas.getActiveObject() || opt.target;
 
-    // Capture Bounding Box Quads (left, top, width, height)
     let bounds = {
       left: activeObj ? activeObj.left : pointer.x - 5,
       top: activeObj ? activeObj.top : pointer.y - 5,
@@ -138,21 +202,15 @@ export default function CanvasStudio() {
       fill: activeObj ? (activeObj.fill || textColorVal) : textColorVal,
     };
 
-    // 1. REDACT & OVERLAY ON MOUSEUP
     if (currentMode === 'redact') {
       executeRedactionOnMouseUp(canvas, activeObj, bounds);
-    } 
-    // 2. FLATTEN PDF ON MOUSEUP
-    else if (currentMode === 'flatten') {
+    } else if (currentMode === 'flatten') {
       executeFlattenOnMouseUp(canvas);
-    } 
-    // 3. POINT & REPLACE ON MOUSEUP
-    else if (currentMode === 'pointReplace') {
+    } else if (currentMode === 'pointReplace') {
       executePointReplaceOnMouseUp(canvas, activeObj, bounds);
     }
   };
 
-  // 1. REDACT & OVERLAY INITIALIZATION ON MOUSEUP
   const executeRedactionOnMouseUp = (canvas, activeObj, bounds) => {
     const redactStyle = prompt('MouseUp Captured Quads!\nSelect Redaction Type:\nType "blackout" for Security Black Box, or "whiteout" for Clean Erasure:', 'blackout');
     if (!redactStyle) {
@@ -162,7 +220,6 @@ export default function CanvasStudio() {
 
     const replacementText = prompt('Enter Overlay Replacement Text (leave empty for Security Redaction only):');
 
-    // Redaction Annotation Box over Captured Quads
     const redactionBox = new fabric.Rect({
       left: bounds.left - 2,
       top: bounds.top - 2,
@@ -188,21 +245,19 @@ export default function CanvasStudio() {
       canvas.setActiveObject(overlayText);
     }
 
-    // Cursor Mode Switcher: Toggle CursorMode back to select
     activateToolMode('select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus('🛡️ MouseUp Initialized Redaction & Overlay!');
+    setStatus('🛡️ Redaction & Overlay Initialized!');
   };
 
-  // 2. FLATTEN PDF INITIALIZATION ON MOUSEUP
   const executeFlattenOnMouseUp = (canvas) => {
-    if (!confirm('MouseUp Captured Markup Coordinates!\n\nExecute Flatten operation to permanently merge all annotations into static page content layer?')) {
+    if (!confirm('Execute Flatten operation to permanently merge all annotations into static page layer?')) {
       activateToolMode('select');
       return;
     }
 
-    setStatus('🔒 Executing Flatten Operation on Captured Coordinates...');
+    setStatus('🔒 Executing Flatten Operation...');
     const flattenedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
 
     fabric.FabricImage.fromURL(flattenedDataUrl).then((flattenedImg) => {
@@ -212,25 +267,22 @@ export default function CanvasStudio() {
       canvas.add(flattenedImg);
       canvas.sendObjectToBack(flattenedImg);
       
-      // Cursor Mode Switcher: Toggle CursorMode back to select
       activateToolMode('select');
       canvas.renderAll();
       saveState(canvas);
-      setStatus('🔒 PDF Annotation Layer permanently flattened into static page layer!');
+      setStatus('🔒 PDF Annotation Layer permanently flattened!');
     });
   };
 
-  // 3. POINT & REPLACE INITIALIZATION ON MOUSEUP
   const executePointReplaceOnMouseUp = (canvas, activeObj, bounds) => {
-    const replaceText = prompt(`MouseUp Captured Quads!\nAuto-Extracted PDF Content Stream Text:\n\nEnter Replacement Text:`, bounds.extractedText);
+    const replaceText = prompt(`Auto-Extracted PDF Text:\n\nEnter Replacement Text:`, bounds.extractedText);
     if (replaceText === null) {
       activateToolMode('select');
       return;
     }
 
-    const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Document Style\nCancel = Use Custom Inspector Style');
+    const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Style\nCancel = Custom Style');
 
-    // Whiteout Box
     const whiteout = new fabric.Rect({
       left: bounds.left - 2,
       top: bounds.top - 2,
@@ -241,7 +293,6 @@ export default function CanvasStudio() {
       strokeWidth: 1,
     });
 
-    // Replacement Text
     const newTextObj = new fabric.IText(replaceText, {
       left: bounds.left,
       top: bounds.top,
@@ -258,11 +309,10 @@ export default function CanvasStudio() {
     canvas.add(newTextObj);
     canvas.setActiveObject(newTextObj);
 
-    // Cursor Mode Switcher: Toggle CursorMode back to select
     activateToolMode('select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus(`MouseUp Substituted PDF Content Stream Text with "${replaceText}"!`);
+    setStatus(`Substituted text with "${replaceText}"!`);
   };
 
   const updateInspectorFromSelection = (obj) => {
@@ -291,7 +341,6 @@ export default function CanvasStudio() {
     setStatus('✏️ Edit Process Initialized! All tools unlocked.');
   };
 
-  // CURSOR MODE SWITCHING ENGINE (`CursorMode`)
   const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
     setActiveTool(mode);
@@ -328,19 +377,19 @@ export default function CanvasStudio() {
 
   const activateRedactMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🛡️ Redact Mode Active! Click or drag across any area on the document to Redact & Overlay on MouseUp.');
+    setStatus('🛡️ Redact Mode Active! Drag area on document to Redact & Overlay.');
     activateToolMode('redact');
   };
 
   const activateFlattenMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🔒 Flatten Mode Active! Click on the document to Flatten annotations into the static page layer on MouseUp.');
+    setStatus('🔒 Flatten Mode Active! Click document to Flatten annotations.');
     activateToolMode('flatten');
   };
 
   const activatePointToReplace = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🎯 Point & Replace Active! Click directly on any text or document area to Extract & Replace on MouseUp.');
+    setStatus('🎯 Point & Replace Active! Click directly on text to Extract & Replace.');
     activateToolMode('pointReplace');
   };
 
@@ -348,7 +397,7 @@ export default function CanvasStudio() {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
 
-    const findText = prompt('Enter text to Find in PDF content stream (e.g., Entity):', 'Entity');
+    const findText = prompt('Enter text to Find in PDF stream:', 'Entity');
     if (!findText) return;
 
     let targetObj = null;
@@ -359,7 +408,7 @@ export default function CanvasStudio() {
     });
 
     const extractedSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Extracted PDF Content Stream Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    const replaceText = prompt(`Extracted Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
     let count = 0;
@@ -397,9 +446,9 @@ export default function CanvasStudio() {
     if (count > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${count} instance(s) in PDF content stream!`);
+      setStatus(`Replaced ${count} instance(s) in PDF stream!`);
     } else {
-      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target area!`);
+      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target!`);
     }
   };
 
@@ -458,7 +507,7 @@ export default function CanvasStudio() {
         fabricCanvas.add(textObj);
       });
     } catch (e) {
-      console.warn('PDF Text Content stream extraction skipped:', e);
+      console.warn('PDF text extraction skipped:', e);
     }
 
     activateToolMode('hand');
@@ -593,9 +642,17 @@ export default function CanvasStudio() {
       top: 10,
     });
 
-    const line = new fabric.Line([10, 45, sigText.width + 20, 45], { stroke: '#0284c7', strokeWidth: 2 });
-    const group = new fabric.Group([rect, text], { left: 200, top: 200 });
+    const rect = new fabric.Rect({
+      width: sigText.width + 30,
+      height: 50,
+      fill: '#ffffff',
+      stroke: '#0284c7',
+      strokeWidth: 1.5,
+      rx: 4,
+      ry: 4,
+    });
 
+    const group = new fabric.Group([rect, sigText], { left: 200, top: 200 });
     fabricCanvas.add(group);
     fabricCanvas.setActiveObject(group);
     saveState();
@@ -889,8 +946,8 @@ export default function CanvasStudio() {
     try {
       const res = await axios.post(`${API_BASE}/video/render-canvas`, { frames, fps: 30 });
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      setStatus(`Animation exported! Opening MP4...`);
-      window.open(videoUrl, '_blank');
+      setVideoPreviewUrl(videoUrl);
+      setStatus(`Animation exported! Loaded into Video Portal.`);
     } catch (err) {
       setStatus(`Error rendering MP4: ${err.message}`);
     }
@@ -937,8 +994,8 @@ export default function CanvasStudio() {
     try {
       const res = await axios.post(`${API_BASE}/video/stitch`, formData);
       const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      setStatus(`Stitching Complete! Output: ${fileUrl}`);
-      window.open(fileUrl, '_blank');
+      setVideoPreviewUrl(fileUrl);
+      setStatus(`Stitching Complete! Output loaded into Video Portal.`);
     } catch (err) {
       setStatus(`Error stitching: ${err.message}`);
     }
@@ -976,12 +1033,18 @@ export default function CanvasStudio() {
     try {
       const res = await axios.post(`${API_BASE}/video/auto-subtitle`, formData);
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
+      setVideoPreviewUrl(videoUrl);
       setTranscriptionText(res.data.transcriptionText);
-      setStatus(`Subtitled video ready! Opening MP4...`);
-      window.open(videoUrl, '_blank');
+      setStatus(`Subtitled video ready! Loaded into Video Portal.`);
     } catch (err) {
       setStatus(`Error generating subtitled video: ${err.message}`);
     }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
@@ -992,9 +1055,29 @@ export default function CanvasStudio() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
+      {/* Custom Scrollbars Injection */}
+      <style>{`
+        .custom-scroll::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+          background: ${darkMode ? '#0f172a' : '#e2e8f0'};
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+          background: ${darkMode ? '#334155' : '#94a3b8'};
+          border-radius: 4px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+          background: #0284c7;
+        }
+      `}</style>
+
       {/* 1. TOP PORTAL SWITCHER & GLOBAL ACTIONS */}
-      <div style={{ height: '36px', minHeight: '36px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '6px', zIndex: 40, boxSizing: 'border-box' }}>
-        <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={16} /> OmniStudio</span>
+      <div style={{ height: '36px', minHeight: '36px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '6px', zIndex: 40, boxSizing: 'border-box', overflowX: 'auto' }}>
+        <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '8px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+          <FileText size={16} /> OmniStudio
+        </span>
         
         <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={13} /> PDF Portal</button>
         <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={13} /> Canvas Studio</button>
@@ -1004,13 +1087,12 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
-        {/* EDIT DOCUMENT GATEKEEPER BUTTON */}
         {!isEditMode ? (
           <button title="Click to Initialize Editing Process" onClick={initializeEditProcess} style={enableEditBtnStyle}>
             <Edit3 size={13} /> Enable Editing
           </button>
         ) : (
-          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', padding: '2px 8px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', padding: '2px 8px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
             <Edit3 size={12} /> Editing Active
           </span>
         )}
@@ -1031,144 +1113,136 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON */}
-      <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
+      {/* 2. SECONDARY TOOL RIBBON (Scrollable) */}
+      <div className="custom-scroll" style={{ height: '44px', minHeight: '44px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
-              <label style={prominentBtnStyle('#0284c7')}>
-                <Upload size={14} /> Open PDF
-                <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
-              </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', flexWrap: 'nowrap' }}>
+            <label style={prominentBtnStyle('#0284c7')}>
+              <Upload size={14} /> Open PDF
+              <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
+            </label>
 
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={14} /></button>
-              <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={14} /></button>
-              
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+            <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={14} /></button>
+            <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={14} /></button>
+            
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Drag-to-Pan Viewport Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+            <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
+            <button title="Hand / Drag-to-Pan Viewport Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
-                <Type size={14} /> Text
+            <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
+              <Type size={14} /> Text
+            </button>
+
+            <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
+              <ShieldAlert size={14} /> Redact & Overlay
+            </button>
+
+            <button title="Flatten PDF" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
+              <Lock size={14} /> Flatten PDF
+            </button>
+
+            <button title="Find & Replace" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
+              <RefreshCw size={14} /> Find & Replace
+            </button>
+
+            <button title="Point & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+              <Target size={14} /> Point & Replace
+            </button>
+
+            <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
+              <Highlighter size={14} /> Highlight
+            </button>
+
+            <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
+              <Pencil size={14} /> Draw
+            </button>
+
+            <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
+              <Check size={14} /> Check
+            </button>
+
+            <button title="Add Red Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
+              <X size={14} /> Cross
+            </button>
+
+            <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}>
+              <PenTool size={14} /> Sign
+            </button>
+
+            <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
+              <Link size={14} /> Links
+            </button>
+
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
+                <Eraser size={14} /> Eraser <ChevronDown size={11} />
               </button>
-
-              {/* MOUSEUP INITIALIZED REDACTION TOOL */}
-              <button title="Click/Drag Area and Release Mouse to Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
-                <ShieldAlert size={14} /> Redact & Overlay
-              </button>
-
-              {/* MOUSEUP INITIALIZED FLATTEN PDF TOOL */}
-              <button title="Click Area and Release Mouse to Flatten Annotations into Static Layer" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
-                <Lock size={14} /> Flatten PDF
-              </button>
-
-              <button title="Automated Find & Replace Text" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
-                <RefreshCw size={14} /> Find & Replace
-              </button>
-
-              {/* MOUSEUP INITIALIZED POINT & REPLACE TOOL WITH TARGET CURSOR */}
-              <button title="Click directly on document item to Auto-Extract and Edit on MouseUp" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
-                <Target size={14} /> Point & Replace
-              </button>
-
-              <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
-                <Highlighter size={14} /> Highlight
-              </button>
-
-              <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
-                <Pencil size={14} /> Draw
-              </button>
-
-              <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
-                <Check size={14} /> Check
-              </button>
-
-              <button title="Add Red Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
-                <X size={14} /> Cross
-              </button>
-
-              <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}>
-                <PenTool size={14} /> Sign
-              </button>
-
-              <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
-                <Link size={14} /> Links
-              </button>
-
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
-                  <Eraser size={14} /> Eraser <ChevronDown size={11} />
-                </button>
-                {activeDropdown === 'eraser' && (
-                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={13} /> Whiteout Cover Box</button>
-                    <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={13} /> Vector Stroke Purge</button>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={prominentBtnStyle('#059669')}>
-                  <ImageIcon size={14} /> Image & Stamps <ChevronDown size={11} />
-                </button>
-                {activeDropdown === 'image' && (
-                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <label style={dropdownItemStyle}>
-                      <Upload size={13} /> Local Image Upload
-                      <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-                    </label>
-                    <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
-                    <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={13} color="#10b981" /> APPROVED Stamp</button>
-                    <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={13} color="#ef4444" /> CONFIDENTIAL Stamp</button>
-                    <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={13} color="#0284c7" /> DRAFT Stamp</button>
-                    <button onClick={() => addStamp('SIGN')} style={dropdownItemStyle}><Stamp size={13} color="#f59e0b" /> SIGN HERE Stamp</button>
-                    <button onClick={() => addStamp('COMPLETED')} style={dropdownItemStyle}><Stamp size={13} color="#8b5cf6" /> COMPLETED Stamp</button>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
-                  <Square size={14} /> Shapes <ChevronDown size={11} />
-                </button>
-                {activeDropdown === 'shapes' && (
-                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
-                    <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
-                    <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
-                    <button onClick={() => addShape('arrow')} style={dropdownItemStyle}><MoveRight size={13} /> Arrow Connector</button>
-                    <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
-                    <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
-                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
-                  </div>
-                )}
-              </div>
-
-              {/* MORE TOOLS SUBMENU */}
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
-                  More Tools <ChevronRight size={11} />
-                </button>
-                {activeDropdown === 'moreTools' && (
-                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <button onClick={handleCropTool} style={dropdownItemStyle}><Crop size={13} /> Crop Image / Page</button>
-                    <button onClick={() => handleZoom(zoomLevel + 0.1)} style={dropdownItemStyle}><ZoomIn size={13} /> Zoom In (+)</button>
-                    <button onClick={() => handleZoom(zoomLevel - 0.1)} style={dropdownItemStyle}><ZoomOut size={13} /> Zoom Out (-)</button>
-                    <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
-                    <button onClick={handlePageLayoutToggle} style={dropdownItemStyle}><Layout size={13} /> Page Layout (Portrait/Landscape)</button>
-                    <button onClick={handleManagePages} style={dropdownItemStyle}><FileCog size={13} /> Manage Pages (Delete/Rotate)</button>
-                  </div>
-                )}
-              </div>
+              {activeDropdown === 'eraser' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={13} /> Whiteout Cover Box</button>
+                  <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={13} /> Vector Stroke Purge</button>
+                </div>
+              )}
             </div>
 
-            <button onClick={exportCanvasImage} style={prominentBtnStyle('#10b981')}><Download size={14} /> Export Page</button>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={prominentBtnStyle('#059669')}>
+                <ImageIcon size={14} /> Image & Stamps <ChevronDown size={11} />
+              </button>
+              {activeDropdown === 'image' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <label style={dropdownItemStyle}>
+                    <Upload size={13} /> Local Image Upload
+                    <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+                  </label>
+                  <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
+                  <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={13} color="#10b981" /> APPROVED Stamp</button>
+                  <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={13} color="#ef4444" /> CONFIDENTIAL Stamp</button>
+                  <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={13} color="#0284c7" /> DRAFT Stamp</button>
+                  <button onClick={() => addStamp('SIGN')} style={dropdownItemStyle}><Stamp size={13} color="#f59e0b" /> SIGN HERE Stamp</button>
+                  <button onClick={() => addStamp('COMPLETED')} style={dropdownItemStyle}><Stamp size={13} color="#8b5cf6" /> COMPLETED Stamp</button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
+                <Square size={14} /> Shapes <ChevronDown size={11} />
+              </button>
+              {activeDropdown === 'shapes' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
+                  <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
+                  <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
+                  <button onClick={() => addShape('arrow')} style={dropdownItemStyle}><MoveRight size={13} /> Arrow Connector</button>
+                  <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
+                  <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
+                  <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
+                More Tools <ChevronRight size={11} />
+              </button>
+              {activeDropdown === 'moreTools' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <button onClick={handleCropTool} style={dropdownItemStyle}><Crop size={13} /> Crop Image / Page</button>
+                  <button onClick={() => handleZoom(zoomLevel + 0.1)} style={dropdownItemStyle}><ZoomIn size={13} /> Zoom In (+)</button>
+                  <button onClick={() => handleZoom(zoomLevel - 0.1)} style={dropdownItemStyle}><ZoomOut size={13} /> Zoom Out (-)</button>
+                  <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
+                  <button onClick={handlePageLayoutToggle} style={dropdownItemStyle}><Layout size={13} /> Page Layout (Portrait/Landscape)</button>
+                  <button onClick={handleManagePages} style={dropdownItemStyle}><FileCog size={13} /> Manage Pages (Delete/Rotate)</button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1225,7 +1299,7 @@ export default function CanvasStudio() {
 
       </div>
 
-      {/* 3. COMPREHENSIVE TEXT FORMATTING INSPECTOR BAR */}
+      {/* 3. TEXT FORMATTING INSPECTOR BAR */}
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
@@ -1287,9 +1361,10 @@ export default function CanvasStudio() {
         </label>
       </div>
 
-      {/* 4. MAIN EXACT-FIT WORKSPACE */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', boxSizing: 'border-box' }}>
+      {/* 4. MAIN WORKSPACE (Scrollable to View ALL Features) */}
+      <div className="custom-scroll" style={{ display: 'flex', flex: 1, overflowY: 'auto', boxSizing: 'border-box' }}>
 
+        {/* PAGE NAVIGATOR SIDEBAR */}
         {activePortal === 'pdf' && (
           <div style={{ width: '160px', minWidth: '160px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box' }}>
             <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Page Navigator</span>
@@ -1313,34 +1388,104 @@ export default function CanvasStudio() {
           </div>
         )}
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '8px', boxSizing: 'border-box' }}>
+        {/* CENTER CONTENT DISPLAY */}
+        <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box' }}>
           
-          <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 6px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+          {/* Status Header & Zoom Controls */}
+          <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
               <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
-              <span style={{ fontSize: '10px', fontWeight: 'bold', width: '35px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
               <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
-              <button title="Fit" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', marginLeft: '2px' }}>Fit</button>
+              <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
             </div>
           </div>
 
+          {/* Document Canvas Display */}
           <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
             <canvas ref={canvasRef} />
           </div>
 
-          <div style={{ marginTop: '6px', width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '4px 10px', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '2px', boxSizing: 'border-box' }}>
+          {/* DEDICATED VIDEO STUDIO & TIMELINE PORTAL */}
+          <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '16px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><Layers size={13} /> Video Timeline Track</span>
-              <span style={{ fontSize: '10px', color: '#0284c7' }}>00:00:{String(timelineSec).padStart(2, '0')} / 00:00:30</span>
+              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Film size={16} /> Dedicated Video Preview Portal & Timeline Track
+              </span>
+              {videoPreviewUrl && (
+                <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 'bold' }}>
+                  Media Loaded & Synced
+                </span>
+              )}
             </div>
-            <input type="range" min="0" max="30" value={timelineSec} onChange={(e) => setTimelineSec(e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#0284c7' }} />
+
+            {/* Video Player Display */}
+            <div style={{ width: '100%', height: '320px', backgroundColor: '#000000', borderRadius: '6px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: `1px solid ${borderCol}` }}>
+              {videoPreviewUrl ? (
+                <video
+                  ref={videoRef}
+                  src={videoPreviewUrl}
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  onLoadedMetadata={handleVideoLoadedMetadata}
+                  onEnded={() => setIsPlaying(false)}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              ) : (
+                <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <Film size={32} />
+                  <span>No video loaded. Stitch media, render canvas animation, or auto-subtitle a video to preview here.</span>
+                </div>
+              )}
+            </div>
+
+            {/* Video Playhead & Scrubber */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button 
+                onClick={togglePlayPause} 
+                disabled={!videoPreviewUrl}
+                style={{
+                  backgroundColor: videoPreviewUrl ? '#0284c7' : '#334155',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: videoPreviewUrl ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+              </button>
+
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                  <span><Layers size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Timeline Track</span>
+                  <span style={{ fontWeight: 'bold', color: textColor }}>
+                    {formatTime(timelineSec)} / {formatTime(videoDuration)}
+                  </span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max={videoDuration} 
+                  step="0.1"
+                  value={timelineSec} 
+                  onChange={handleTimelineScrub}
+                  disabled={!videoPreviewUrl}
+                  style={{ width: '100%', cursor: videoPreviewUrl ? 'pointer' : 'not-allowed', accentColor: '#8b5cf6' }}
+                />
+              </div>
+            </div>
           </div>
 
+          {/* Transcription Output Display */}
           {transcriptionText && (
-            <div style={{ marginTop: '4px', width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '4px 10px', borderRadius: '4px' }}>
-              <h3 style={{ fontSize: '10px', fontWeight: 'bold', margin: 0 }}>Transcription Text:</h3>
-              <p style={{ fontSize: '10px', margin: 0 }}>{transcriptionText}</p>
+            <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
+              <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
             </div>
           )}
 
@@ -1365,6 +1510,7 @@ const portalTabStyle = (active) => ({
   cursor: 'pointer',
   fontSize: '11px',
   fontWeight: 'bold',
+  whiteSpace: 'nowrap',
 });
 
 const globalHeaderBtnStyle = {
