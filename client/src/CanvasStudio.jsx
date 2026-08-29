@@ -9,7 +9,7 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target
+  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target, Edit3, Lock
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -24,9 +24,14 @@ export default function CanvasStudio() {
   const [fabricCanvas, setFabricCanvas] = useState(null);
   const [activePortal, setActivePortal] = useState('pdf');
   const [darkMode, setDarkMode] = useState(true);
-  const [status, setStatus] = useState('Ready');
+  const [status, setStatus] = useState('Ready - View Mode');
 
-  const [activeTool, setActiveTool] = useState('select');
+  // EDIT PROCESS GATEKEEPER STATE
+  const [isEditMode, setIsEditMode] = useState(false); // False = View / Read-Only, True = Edit Mode
+
+  // Tool Modes: 'hand' | 'select' | 'draw' | 'highlight' | 'pointReplace'
+  const [activeTool, setActiveTool] = useState('hand');
+  const activeToolRef = useRef('hand');
   const [activeDropdown, setActiveDropdown] = useState(null);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,6 +40,7 @@ export default function CanvasStudio() {
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
+  // Text Inspector State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
   const [fontSizeVal, setFontSizeVal] = useState(24);
   const [textColorVal, setTextColorVal] = useState('#0f172a');
@@ -57,25 +63,34 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
+  // Drag-to-Pan Hand Cursor State
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
 
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
       width: 820,
       height: 480,
       backgroundColor: '#ffffff',
+      defaultCursor: 'grab',
     });
 
+    // DRAG-TO-PAN HAND CURSOR ENGINE
     canvas.on('mouse:down', (opt) => {
-      if (canvas.defaultCursor === 'grab') {
+      if (activeToolRef.current === 'hand') {
         isPanningRef.current = true;
         lastPosRef.current = { x: opt.e.clientX, y: opt.e.clientY };
+        canvas.defaultCursor = 'grabbing';
+        canvas.setCursor('grabbing');
       }
     });
 
     canvas.on('mouse:move', (opt) => {
-      if (isPanningRef.current) {
+      if (isPanningRef.current && activeToolRef.current === 'hand') {
         const vpt = canvas.viewportTransform;
         vpt[4] += opt.e.clientX - lastPosRef.current.x;
         vpt[5] += opt.e.clientY - lastPosRef.current.y;
@@ -85,7 +100,11 @@ export default function CanvasStudio() {
     });
 
     canvas.on('mouse:up', () => {
-      isPanningRef.current = false;
+      if (activeToolRef.current === 'hand') {
+        isPanningRef.current = false;
+        canvas.defaultCursor = 'grab';
+        canvas.setCursor('grab');
+      }
     });
 
     canvas.on('selection:created', (e) => updateInspectorFromSelection(e.selected[0]));
@@ -138,9 +157,53 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // --- AUTOMATED FIND & REPLACE WITH NATIVE PDF TEXT STREAM MATCHING ---
-  const handleFindAndReplace = () => {
+  // INITIALIZE EDITING PROCESS GATEKEEPER
+  const initializeEditProcess = () => {
+    setIsEditMode(true);
+    activateToolMode('select');
+    setStatus('✏️ Edit Process Initialized! All editing tools unlocked.');
+  };
+
+  // --- TOOL MODE SWITCHER ---
+  const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
+    setActiveTool(mode);
+    setActiveDropdown(null);
+
+    fabricCanvas.isDrawingMode = false;
+    fabricCanvas.selection = true;
+
+    if (mode === 'hand') {
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'grab';
+      fabricCanvas.setCursor('grab');
+    } else if (mode === 'pointReplace') {
+      fabricCanvas.defaultCursor = 'crosshair';
+      fabricCanvas.hoverCursor = 'crosshair';
+      fabricCanvas.setCursor('crosshair');
+    } else if (mode === 'draw') {
+      fabricCanvas.isDrawingMode = true;
+      const brush = new fabric.PencilBrush(fabricCanvas);
+      brush.width = 3;
+      brush.color = '#ef4444';
+      fabricCanvas.freeDrawingBrush = brush;
+    } else if (mode === 'highlight') {
+      fabricCanvas.isDrawingMode = true;
+      const brush = new fabric.PencilBrush(fabricCanvas);
+      brush.width = 18;
+      brush.color = 'rgba(250, 204, 21, 0.4)';
+      fabricCanvas.freeDrawingBrush = brush;
+    } else {
+      fabricCanvas.defaultCursor = 'default';
+      fabricCanvas.setCursor('default');
+    }
+  };
+
+  // AUTOMATED FIND & REPLACE
+  const handleFindAndReplace = () => {
+    if (!isEditMode) initializeEditProcess();
+    if (!fabricCanvas) return;
+
     const findText = prompt('Enter text to Find in PDF document (e.g., Entity):', 'Entity');
     if (!findText) return;
 
@@ -166,7 +229,6 @@ export default function CanvasStudio() {
         const fontFam = matchOriginal ? (obj.fontFamily || fontFamilyVal) : fontFamilyVal;
         const fontCol = matchOriginal ? '#0f172a' : textColorVal;
 
-        // Auto Whiteout Box over old text in PDF background
         const whiteout = new fabric.Rect({
           left: left - 2,
           top: top - 2,
@@ -177,7 +239,6 @@ export default function CanvasStudio() {
           strokeWidth: 1,
         });
 
-        // Overlay Replacement Text
         const newText = new fabric.IText(replaceText, {
           left: left,
           top: top,
@@ -186,7 +247,7 @@ export default function CanvasStudio() {
           fill: fontCol,
         });
 
-        fabricCanvas.remove(obj); // Remove original text placeholder
+        fabricCanvas.remove(obj);
         fabricCanvas.add(whiteout);
         fabricCanvas.add(newText);
         fabricCanvas.setActiveObject(newText);
@@ -199,16 +260,17 @@ export default function CanvasStudio() {
       saveState();
       setStatus(`Replaced ${count} instance(s) of "${findText}"!`);
     } else {
-      // Manual Click Fallback if scanned image
-      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on the target text area on the document!`);
+      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target area!`);
     }
   };
 
-  // --- INTERACTIVE POINT-TO-REPLACE ENGINE WITH AUTO-EXTRACTION ---
+  // POINT-TO-REPLACE ENGINE WITH TARGET CURSOR & AUTO-INITIALIZE EDIT
   const activatePointToReplace = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
-    setStatus('🎯 Click directly on any text or area on the PDF to extract and edit it!');
-    setActiveTool('pointReplace');
+
+    setStatus('🎯 Target Cursor Active! Click directly on any text or document area to Whiteout & Replace.');
+    activateToolMode('pointReplace');
 
     const clickHandler = (opt) => {
       const pointer = fabricCanvas.getPointer(opt.e);
@@ -236,13 +298,12 @@ export default function CanvasStudio() {
 
       const replaceText = prompt(`Auto-Extracted Item Text:\nEdit or Replace below:`, extractedText);
       if (replaceText === null) {
-        setActiveTool('select');
+        activateToolMode('select');
         return;
       }
 
       const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Document Style\nCancel = Use Custom Inspector Style');
 
-      // Auto Whiteout
       const whiteout = new fabric.Rect({
         left: targetLeft - 2,
         top: targetTop - 2,
@@ -253,7 +314,6 @@ export default function CanvasStudio() {
         strokeWidth: 1,
       });
 
-      // Replacement Text
       const newTextObj = new fabric.IText(replaceText, {
         left: targetLeft,
         top: targetTop,
@@ -272,7 +332,7 @@ export default function CanvasStudio() {
       fabricCanvas.renderAll();
       saveState();
 
-      setActiveTool('select');
+      activateToolMode('select');
       fabricCanvas.off('mouse:down', clickHandler);
       setStatus(`Successfully replaced text with "${replaceText}"!`);
     };
@@ -280,7 +340,7 @@ export default function CanvasStudio() {
     fabricCanvas.once('mouse:down', clickHandler);
   };
 
-  // --- RENDER PDF & AUTO-EXTRACT PDF TEXT STREAM TO CANVAS ---
+  // AUTOMATIC VIEWPORT FIT & HAND TOOL ACTIVATION ON DOCUMENT RENDER
   const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -302,6 +362,7 @@ export default function CanvasStudio() {
 
     fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
 
+    // Math for Automatic Viewport Fit
     const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
     imgObj.scale(scale);
 
@@ -314,7 +375,7 @@ export default function CanvasStudio() {
     fabricCanvas.add(imgObj);
     fabricCanvas.sendObjectToBack(imgObj);
 
-    // AUTO-EXTRACT REAL PDF TEXT ITEMS INTO SELECTABLE CANVAS OBJECTS
+    // Extract PDF Text Stream to Canvas
     try {
       const textContent = await page.getTextContent();
       textContent.items.forEach((item) => {
@@ -330,7 +391,7 @@ export default function CanvasStudio() {
           top: pdfY,
           fontSize: fontSize,
           fontFamily: 'Arial',
-          fill: 'rgba(15, 23, 42, 0.01)', // Invisible selectable PDF text overlay
+          fill: 'rgba(15, 23, 42, 0.01)',
           selectable: true,
         });
 
@@ -340,6 +401,8 @@ export default function CanvasStudio() {
       console.warn('PDF Text Content stream extraction skipped:', e);
     }
 
+    // Default to Hand / View Panning Mode on Render
+    activateToolMode('hand');
     fabricCanvas.renderAll();
     saveState(fabricCanvas);
   };
@@ -348,7 +411,7 @@ export default function CanvasStudio() {
     const file = e.target.files[0];
     if (!file) return;
 
-    setStatus('Loading PDF & Extracting Text Stream...');
+    setStatus('Loading PDF into Viewport...');
     const fileArrayBuffer = await file.arrayBuffer();
 
     try {
@@ -359,7 +422,7 @@ export default function CanvasStudio() {
 
       generateThumbnails(loadedPdf);
       await renderPdfPageOntoCanvas(loadedPdf, 1);
-      setStatus(`PDF & Text Stream Loaded! Page 1 of ${loadedPdf.numPages}`);
+      setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages} (View Mode - Hand Tool Active)`);
     } catch (err) {
       setStatus(`Error loading PDF: ${err.message}`);
     }
@@ -437,6 +500,7 @@ export default function CanvasStudio() {
   };
 
   const addCheckmark = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
     const check = new fabric.Text('✔️', { fontSize: 32, fill: '#10b981', left: 200, top: 200 });
@@ -446,6 +510,7 @@ export default function CanvasStudio() {
   };
 
   const addCrossmark = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
     const cross = new fabric.Text('❌', { fontSize: 32, fill: '#ef4444', left: 200, top: 200 });
@@ -455,6 +520,7 @@ export default function CanvasStudio() {
   };
 
   const addElectronicSignature = () => {
+    if (!isEditMode) initializeEditProcess();
     const name = prompt('Enter name for Electronic Signature:', signatureName);
     if (!name || !fabricCanvas) return;
     setSignatureName(name);
@@ -477,6 +543,7 @@ export default function CanvasStudio() {
   };
 
   const attachLinkToSelection = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
     if (!activeObj) {
@@ -493,6 +560,7 @@ export default function CanvasStudio() {
   };
 
   const handleCropTool = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
     if (!activeObj) {
@@ -567,6 +635,7 @@ export default function CanvasStudio() {
   };
 
   const addText = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
     const text = new fabric.IText('Edit text here', { 
@@ -588,6 +657,7 @@ export default function CanvasStudio() {
   };
 
   const addWhiteoutEraser = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
     const rect = new fabric.Rect({
@@ -605,6 +675,7 @@ export default function CanvasStudio() {
   };
 
   const purgeVectorStrokes = () => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     const activeObjects = fabricCanvas.getActiveObjects();
     activeObjects.forEach((obj) => fabricCanvas.remove(obj));
@@ -613,6 +684,7 @@ export default function CanvasStudio() {
   };
 
   const addStamp = (type) => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
 
@@ -634,6 +706,7 @@ export default function CanvasStudio() {
   };
 
   const addShape = (shapeType) => {
+    if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
     activateToolMode('select');
 
@@ -706,6 +779,7 @@ export default function CanvasStudio() {
   };
 
   const handleImageUpload = (e) => {
+    if (!isEditMode) initializeEditProcess();
     const file = e.target.files[0];
     if (!file || !fabricCanvas) return;
     const reader = new FileReader();
@@ -871,7 +945,19 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
-        {/* GLOBAL HEADER ACTIONS */}
+        {/* EDIT DOCUMENT GATEKEEPER BUTTON */}
+        {!isEditMode ? (
+          <button title="Click to Initialize Editing Process" onClick={initializeEditProcess} style={enableEditBtnStyle}>
+            <Edit3 size={13} /> Enable Editing
+          </button>
+        ) : (
+          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', padding: '2px 8px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Edit3 size={12} /> Editing Active
+          </span>
+        )}
+
+        <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
         <button title="Search Text" onClick={handleSearch} style={globalHeaderBtnStyle}><Search size={13} /> Search</button>
         <button title="Print Document Page" onClick={handlePrint} style={globalHeaderBtnStyle}><Printer size={13} /> Print</button>
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
@@ -886,7 +972,7 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON (INCLUDES AUTO-EXTRACT FIND & REPLACE + POINT & REPLACE) */}
+      {/* 2. SECONDARY TOOL RIBBON */}
       <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
@@ -905,7 +991,7 @@ export default function CanvasStudio() {
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Hand / Drag-to-Pan Viewport Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -913,13 +999,12 @@ export default function CanvasStudio() {
                 <Type size={14} /> Text
               </button>
 
-              {/* AUTOMATED FIND & REPLACE WITH FULL SENTENCE EXTRACTION */}
               <button title="Automated Find & Replace Text" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
                 <RefreshCw size={14} /> Find & Replace
               </button>
 
-              {/* AUTO-EXTRACT POINT & REPLACE TOOL */}
-              <button title="Click directly on document item to Auto-Extract and Edit" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+              {/* TARGET CURSOR POINT & REPLACE TOOL */}
+              <button title="Click directly on document item to Auto-Extract and Edit (Target Crosshair Cursor Active)" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
                 <Target size={14} /> Point & Replace
               </button>
 
@@ -996,7 +1081,6 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* MORE TOOLS SUBMENU */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
                   More Tools <ChevronRight size={11} />
@@ -1198,7 +1282,7 @@ export default function CanvasStudio() {
   );
 }
 
-// Button & Dropdown Styles
+// Styles
 const portalTabStyle = (active) => ({
   display: 'flex',
   alignItems: 'center',
@@ -1234,6 +1318,22 @@ const doneHeaderBtnStyle = {
   gap: '4px',
   padding: '3px 10px',
   backgroundColor: '#10b981',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+};
+
+const enableEditBtnStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: '#f59e0b',
   color: '#ffffff',
   border: 'none',
   borderRadius: '3px',
