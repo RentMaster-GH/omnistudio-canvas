@@ -1,7 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as fabric from 'fabric';
 import axios from 'axios';
-import { Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, Music, Play, Captions, Save, Upload, Layers, Sun, Moon } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import { 
+  Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
+  Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
+  ChevronRight, Eye, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
+  Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown
+} from 'lucide-react';
+
+// Configure PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
@@ -10,27 +19,270 @@ const API_BASE = window.location.hostname === 'localhost'
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  const [activeTab, setActiveTab] = useState('canvas');
-  const [darkMode, setDarkMode] = useState(true); // Dark/Light Mode Theme
+  const [activePortal, setActivePortal] = useState('pdf');
+  const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready');
-  const [transcriptionText, setTranscriptionText] = useState('');
+
+  const [activeTool, setActiveTool] = useState('select');
+  const [activeDropdown, setActiveDropdown] = useState(null);
+
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pageNum, setPageNum] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [thumbnails, setThumbnails] = useState([]);
+
+  const [zoomLevel, setZoomLevel] = useState(1.0);
   const [timelineSec, setTimelineSec] = useState(0);
+  const [transcriptionText, setTranscriptionText] = useState('');
 
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
-  const [pdfText, setPdfText] = useState('');
 
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
-      width: 800,
-      height: 450,
+      width: 900,
+      height: 650,
       backgroundColor: '#ffffff',
     });
+
     setFabricCanvas(canvas);
+    saveState(canvas);
+
     return () => canvas.dispose();
   }, []);
 
-  // --- SAVE & LOAD PROJECT (JSON) ---
+  const saveState = (targetCanvas = fabricCanvas) => {
+    if (!targetCanvas) return;
+    const json = JSON.stringify(targetCanvas.toJSON());
+    setUndoStack((prev) => [...prev, json]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length <= 1 || !fabricCanvas) return;
+    const currentState = undoStack[undoStack.length - 1];
+    const prevState = undoStack[undoStack.length - 2];
+
+    setRedoStack((prev) => [...prev, currentState]);
+    setUndoStack((prev) => prev.slice(0, prev.length - 1));
+
+    fabricCanvas.loadFromJSON(prevState, () => fabricCanvas.renderAll());
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !fabricCanvas) return;
+    const nextState = redoStack[redoStack.length - 1];
+
+    setRedoStack((prev) => prev.slice(0, prev.length - 1));
+    setUndoStack((prev) => [...prev, nextState]);
+
+    fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
+  };
+
+  const activateToolMode = (mode) => {
+    if (!fabricCanvas) return;
+    setActiveTool(mode);
+    setActiveDropdown(null);
+
+    fabricCanvas.isDrawingMode = false;
+    fabricCanvas.selection = true;
+
+    if (mode === 'hand') {
+      fabricCanvas.selection = false;
+      fabricCanvas.defaultCursor = 'grab';
+    } else if (mode === 'draw') {
+      fabricCanvas.isDrawingMode = true;
+      const brush = new fabric.PencilBrush(fabricCanvas);
+      brush.width = 3;
+      brush.color = '#ef4444';
+      fabricCanvas.freeDrawingBrush = brush;
+    } else if (mode === 'highlight') {
+      fabricCanvas.isDrawingMode = true;
+      const brush = new fabric.PencilBrush(fabricCanvas);
+      brush.width = 18;
+      brush.color = 'rgba(250, 204, 21, 0.4)';
+      fabricCanvas.freeDrawingBrush = brush;
+    } else {
+      fabricCanvas.defaultCursor = 'default';
+    }
+  };
+
+  const handlePdfDocumentUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setStatus('Loading PDF into Document Navigator...');
+    const fileArrayBuffer = await file.arrayBuffer();
+
+    try {
+      const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
+      setPdfDoc(loadedPdf);
+      setTotalPages(loadedPdf.numPages);
+      setPageNum(1);
+
+      generateThumbnails(loadedPdf);
+      await renderPdfPageOntoCanvas(loadedPdf, 1);
+      setStatus(`PDF Loaded! Previewing Page 1 of ${loadedPdf.numPages}`);
+    } catch (err) {
+      setStatus(`Error loading PDF: ${err.message}`);
+    }
+  };
+
+  const generateThumbnails = async (pdf) => {
+    const thumbs = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 0.2 });
+      const tempCanvas = document.createElement('canvas');
+      const context = tempCanvas.getContext('2d');
+      tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      thumbs.push(tempCanvas.toDataURL('image/png'));
+    }
+    setThumbnails(thumbs);
+  };
+
+  const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
+    if (!pdf || !fabricCanvas) return;
+
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.5 });
+
+    const tempCanvas = document.createElement('canvas');
+    const context = tempCanvas.getContext('2d');
+    tempCanvas.height = viewport.height;
+    tempCanvas.width = viewport.width;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    const imgData = tempCanvas.toDataURL('image/png');
+    const imgObj = await fabric.FabricImage.fromURL(imgData);
+
+    const canvasWidth = 900;
+    const canvasHeight = 650;
+
+    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+    const scale = Math.min((canvasWidth - 60) / imgObj.width, (canvasHeight - 60) / imgObj.height);
+    imgObj.scale(scale);
+
+    const left = (canvasWidth - imgObj.width * scale) / 2;
+    const top = (canvasHeight - imgObj.height * scale) / 2;
+
+    imgObj.set({ left, top, selectable: true, hasControls: true });
+
+    fabricCanvas.clear();
+    fabricCanvas.add(imgObj);
+    fabricCanvas.sendObjectToBack(imgObj);
+    fabricCanvas.setActiveObject(imgObj);
+    fabricCanvas.renderAll();
+
+    saveState(fabricCanvas);
+  };
+
+  const changePdfPage = async (newPage) => {
+    if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
+    setPageNum(newPage);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage);
+  };
+
+  const addText = () => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+    const text = new fabric.IText('Edit text here', { left: 150, top: 150, fontSize: 22, fill: '#0f172a' });
+    fabricCanvas.add(text);
+    fabricCanvas.setActiveObject(text);
+    saveState();
+  };
+
+  const addWhiteoutEraser = () => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+    const rect = new fabric.Rect({
+      left: 150,
+      top: 150,
+      width: 180,
+      height: 35,
+      fill: '#ffffff',
+      stroke: '#cbd5e1',
+      strokeWidth: 1,
+    });
+    fabricCanvas.add(rect);
+    fabricCanvas.setActiveObject(rect);
+    saveState();
+  };
+
+  const purgeVectorStrokes = () => {
+    if (!fabricCanvas) return;
+    const activeObjects = fabricCanvas.getActiveObjects();
+    activeObjects.forEach((obj) => fabricCanvas.remove(obj));
+    fabricCanvas.discardActiveObject();
+    saveState();
+  };
+
+  const addStamp = (type) => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+
+    let textStr = 'APPROVED';
+    let color = '#10b981';
+
+    if (type === 'CONFIDENTIAL') { textStr = 'CONFIDENTIAL'; color = '#ef4444'; }
+    if (type === 'DRAFT') { textStr = 'DRAFT'; color = '#0284c7'; }
+
+    const text = new fabric.Text(textStr, { fontSize: 20, fontWeight: 'bold', fill: color, left: 15, top: 10 });
+    const rect = new fabric.Rect({ width: text.width + 30, height: text.height + 20, fill: 'rgba(255, 255, 255, 0.9)', stroke: color, strokeWidth: 3, rx: 6, ry: 6 });
+
+    const group = new fabric.Group([rect, text], { left: 200, top: 200, angle: -12 });
+    fabricCanvas.add(group);
+    fabricCanvas.setActiveObject(group);
+    saveState();
+  };
+
+  const addShape = (shapeType) => {
+    if (!fabricCanvas) return;
+    activateToolMode('select');
+
+    let shapeObj;
+    if (shapeType === 'rect') {
+      shapeObj = new fabric.Rect({ left: 200, top: 200, width: 120, height: 80, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
+    } else if (shapeType === 'ellipse') {
+      shapeObj = new fabric.Ellipse({ left: 200, top: 200, rx: 60, ry: 40, fill: 'transparent', stroke: '#0284c7', strokeWidth: 3 });
+    } else if (shapeType === 'line') {
+      shapeObj = new fabric.Line([50, 50, 200, 50], { left: 200, top: 200, stroke: '#0284c7', strokeWidth: 3 });
+    } else if (shapeType === 'cloud') {
+      const cloudPath = 'M 10 30 Q 15 10, 35 15 Q 55 5, 70 25 Q 90 25, 90 45 Q 95 65, 75 75 Q 65 95, 45 85 Q 25 95, 15 75 Q -5 65, 5 45 Q -5 25, 10 30 Z';
+      shapeObj = new fabric.Path(cloudPath, { left: 200, top: 200, fill: 'transparent', stroke: '#ef4444', strokeWidth: 3, scaleX: 1.5, scaleY: 1.5 });
+    }
+
+    if (shapeObj) {
+      fabricCanvas.add(shapeObj);
+      fabricCanvas.setActiveObject(shapeObj);
+      saveState();
+    }
+  };
+
+  const handleZoom = (newZoom) => {
+    if (!fabricCanvas) return;
+    const clampedZoom = Math.max(0.2, Math.min(3.0, newZoom));
+    setZoomLevel(clampedZoom);
+    const center = { x: fabricCanvas.width / 2, y: fabricCanvas.height / 2 };
+    fabricCanvas.zoomToPoint(center, clampedZoom);
+    fabricCanvas.renderAll();
+  };
+
+  const resetZoom = () => {
+    if (!fabricCanvas) return;
+    setZoomLevel(1.0);
+    fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    fabricCanvas.renderAll();
+  };
+
   const saveProjectJson = () => {
     if (!fabricCanvas) return;
     const jsonStr = JSON.stringify(fabricCanvas.toJSON());
@@ -55,39 +307,26 @@ export default function CanvasStudio() {
     reader.readAsText(file);
   };
 
-  // --- CANVAS HANDLERS ---
-  const addText = () => {
-    if (!fabricCanvas) return;
-    const text = new fabric.IText('Animated Title', { left: 100, top: 100, fontSize: 32, fill: '#1e293b' });
-    fabricCanvas.add(text);
-    fabricCanvas.setActiveObject(text);
-  };
-
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file || !fabricCanvas) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
       const imgObj = await fabric.FabricImage.fromURL(event.target.result);
-      imgObj.scaleToWidth(300);
+      imgObj.scaleToWidth(250);
+      imgObj.set({ left: 200, top: 200 });
       fabricCanvas.add(imgObj);
       fabricCanvas.setActiveObject(imgObj);
+      saveState();
     };
     reader.readAsDataURL(file);
-  };
-
-  const deleteSelected = () => {
-    if (!fabricCanvas) return;
-    const activeObjects = fabricCanvas.getActiveObjects();
-    activeObjects.forEach((obj) => fabricCanvas.remove(obj));
-    fabricCanvas.discardActiveObject();
   };
 
   const exportCanvasImage = () => {
     if (!fabricCanvas) return;
     const dataURL = fabricCanvas.toDataURL({ format: 'png' });
     const link = document.createElement('a');
-    link.download = 'canvas-export.png';
+    link.download = `edited-document-page-${pageNum}.png`;
     link.href = dataURL;
     link.click();
   };
@@ -174,29 +413,6 @@ export default function CanvasStudio() {
     }
   };
 
-  const handlePdfEdit = async (e) => {
-    e.preventDefault();
-    const pdfFile = e.target.pdf.files[0];
-    if (!pdfFile || !pdfText) return;
-
-    setStatus('Adding text overlay to PDF document...');
-    const formData = new FormData();
-    formData.append('pdf', pdfFile);
-    formData.append('text', pdfText);
-    formData.append('x', 50);
-    formData.append('y', 700);
-    formData.append('fontSize', 20);
-
-    try {
-      const res = await axios.post(`${API_BASE}/image/pdf/add-text`, formData);
-      const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      setStatus('PDF successfully edited!');
-      window.open(fileUrl, '_blank');
-    } catch (err) {
-      setStatus(`Error editing PDF: ${err.message}`);
-    }
-  };
-
   const handleTranscription = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -237,186 +453,310 @@ export default function CanvasStudio() {
     }
   };
 
-  // Theme Styles
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
-  const bgSidebar = darkMode ? '#1e293b' : '#ffffff';
+  const bgBar = darkMode ? '#1e293b' : '#ffffff';
   const textColor = darkMode ? '#f8fafc' : '#0f172a';
-  const borderCol = darkMode ? '#334155' : '#e2e8f0';
+  const borderCol = darkMode ? '#334155' : '#cbd5e1';
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, transition: 'all 0.3s' }}>
-      {/* Sidebar Nav */}
-      <div style={{ width: '80px', backgroundColor: '#0284c7', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '20px', gap: '20px' }}>
-        <button title="Canvas Tools" onClick={() => setActiveTab('canvas')} style={navIconStyle(activeTab === 'canvas')}><Type size={22} /></button>
-        <button title="Image Filters" onClick={() => setActiveTab('image')} style={navIconStyle(activeTab === 'image')}><Sliders size={22} /></button>
-        <button title="Video & Audio" onClick={() => setActiveTab('video')} style={navIconStyle(activeTab === 'video')}><Video size={22} /></button>
-        <button title="PDF Document" onClick={() => setActiveTab('pdf')} style={navIconStyle(activeTab === 'pdf')}><FileText size={22} /></button>
-        <button title="AI Transcribe" onClick={() => setActiveTab('transcribe')} style={navIconStyle(activeTab === 'transcribe')}><Mic size={22} /></button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor }}>
+      
+      {/* TOP PORTAL SWITCHER BAR */}
+      <div style={{ height: '42px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 15px', gap: '8px', zIndex: 40 }}>
+        <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#fff', marginRight: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={18} /> OmniStudio</span>
         
-        {/* Theme Toggle Button */}
-        <div style={{ marginTop: 'auto', marginBottom: '20px' }}>
-          <button title="Toggle Dark/Light Mode" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
-            {darkMode ? <Sun size={24} /> : <Moon size={24} />}
+        <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={14} /> PDF Portal</button>
+        <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={14} /> Canvas Studio</button>
+        <button onClick={() => setActivePortal('image')} style={portalTabStyle(activePortal === 'image')}><Sliders size={14} /> Image Filters</button>
+        <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={14} /> Video & Audio</button>
+        <button onClick={() => setActivePortal('transcribe')} style={portalTabStyle(activePortal === 'transcribe')}><Mic size={14} /> AI Subtitles</button>
+
+        <div style={{ marginLeft: 'auto' }}>
+          <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
+            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
       </div>
 
-      {/* Tools Drawer */}
-      <div style={{ width: '280px', backgroundColor: bgSidebar, borderRight: `1px solid ${borderCol}`, padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        <h2 style={{ fontSize: '18px', fontWeight: 'bold' }}>OmniStudio Tools</h2>
+      {/* SECONDARY TOOL RIBBON (Contextual to Selected Portal) */}
+      <div style={{ height: '54px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 15px', justifyContent: 'space-between', zIndex: 30 }}>
+        
+        {/* PDF EDITING TOOLS RIBBON WITH HIGH-VISIBILITY COLOR-CODED WHITE FONT BUTTONS */}
+        {activePortal === 'pdf' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <label style={prominentBtnStyle('#0284c7')}>
+                <Upload size={15} /> Open PDF
+                <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
+              </label>
 
-        {activeTab === 'canvas' && (
-          <>
-            <button onClick={addText} style={btnStyle}><Type size={18} /> Add Text Box</button>
-            <label style={btnStyle}>
-              <ImageIcon size={18} /> Add Image
-              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-            </label>
-            <button onClick={deleteSelected} style={{ ...btnStyle, backgroundColor: '#ef4444' }}>
-              <Trash2 size={18} /> Delete Selected
-            </button>
-            <hr style={{ borderColor: borderCol, margin: '5px 0' }} />
-            
-            <button onClick={saveProjectJson} style={{ ...btnStyle, backgroundColor: '#0284c7' }}>
-              <Save size={18} /> Save Project (JSON)
-            </button>
-            <label style={{ ...btnStyle, backgroundColor: '#0369a1' }}>
-              <Upload size={18} /> Load Project (JSON)
-              <input type="file" accept=".json" onChange={loadProjectJson} style={{ display: 'none' }} />
-            </label>
+              <div style={{ width: '1px', height: '20px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-            <hr style={{ borderColor: borderCol, margin: '5px 0' }} />
-            <button onClick={exportCanvasImage} style={{ ...btnStyle, backgroundColor: '#10b981' }}>
-              <Download size={18} /> Export PNG
-            </button>
-            <button onClick={exportCanvasToMp4} style={{ ...btnStyle, backgroundColor: '#8b5cf6' }}>
-              <Play size={18} /> Render Canvas to MP4
-            </button>
-          </>
+              <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={15} /></button>
+              <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={15} /></button>
+              
+              <div style={{ width: '1px', height: '20px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+              <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={15} /></button>
+              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={15} /></button>
+
+              <div style={{ width: '1px', height: '20px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+              {/* 1. TEXT TOOL */}
+              <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
+                <Type size={15} /> Text
+              </button>
+
+              {/* 2. HIGHLIGHT TOOL */}
+              <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
+                <Highlighter size={15} /> Highlight
+              </button>
+
+              {/* 3. DRAW TOOL */}
+              <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
+                <Pencil size={15} /> Draw
+              </button>
+
+              {/* 4. ERASER MENU TOOL */}
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
+                  <Eraser size={15} /> Eraser <ChevronDown size={12} />
+                </button>
+                {activeDropdown === 'eraser' && (
+                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                    <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={14} /> Whiteout Cover Box</button>
+                    <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={14} /> Vector Stroke Purge</button>
+                  </div>
+                )}
+              </div>
+
+              {/* 5. IMAGE & STAMPS MENU TOOL */}
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={prominentBtnStyle('#059669')}>
+                  <ImageIcon size={15} /> Image & Stamps <ChevronDown size={12} />
+                </button>
+                {activeDropdown === 'image' && (
+                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                    <label style={dropdownItemStyle}>
+                      <Upload size={14} /> Local Image Upload
+                      <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+                    </label>
+                    <hr style={{ borderColor: borderCol, margin: '4px 0' }} />
+                    <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={14} color="#10b981" /> APPROVED Stamp</button>
+                    <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={14} color="#ef4444" /> CONFIDENTIAL Stamp</button>
+                    <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={14} color="#0284c7" /> DRAFT Stamp</button>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. SHAPES MENU TOOL */}
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
+                  <Square size={15} /> Shapes <ChevronDown size={12} />
+                </button>
+                {activeDropdown === 'shapes' && (
+                  <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                    <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={14} /> Rectangle</button>
+                    <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={14} /> Ellipse / Oval</button>
+                    <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={14} /> Line</button>
+                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={14} color="#ef4444" /> Revision Cloud</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button onClick={exportCanvasImage} style={prominentBtnStyle('#10b981')}><Download size={15} /> Export Page</button>
+          </div>
         )}
 
-        {activeTab === 'image' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <h3>Image Fine-Tuning</h3>
-            <label style={{ fontSize: '12px' }}>Brightness: {imgBrightness}</label>
-            <input type="range" min="0.5" max="2" step="0.1" value={imgBrightness} onChange={(e) => setImgBrightness(e.target.value)} />
-            
-            <label style={{ fontSize: '12px' }}>Blur: {imgBlur}</label>
-            <input type="range" min="0" max="10" step="0.5" value={imgBlur} onChange={(e) => setImgBlur(e.target.value)} />
+        {activePortal === 'canvas' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button onClick={addText} style={prominentBtnStyle('#0284c7')}><Type size={14} /> Add Text</button>
+            <label style={prominentBtnStyle('#059669')}>
+              <ImageIcon size={14} /> Add Image
+              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+            </label>
+            <button onClick={saveProjectJson} style={prominentBtnStyle('#0284c7')}><Save size={14} /> Save JSON</button>
+            <label style={prominentBtnStyle('#0369a1')}>
+              <Upload size={14} /> Load JSON
+              <input type="file" accept=".json" onChange={loadProjectJson} style={{ display: 'none' }} />
+            </label>
+            <button onClick={exportCanvasToMp4} style={prominentBtnStyle('#8b5cf6')}><Play size={14} /> Render Canvas to MP4</button>
+          </div>
+        )}
 
-            <label style={{ ...btnStyle, marginTop: '10px' }}>
-              <Sliders size={18} /> Apply & Upload Image
+        {activePortal === 'image' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <span style={{ fontSize: '12px' }}>Brightness: {imgBrightness}</span>
+            <input type="range" min="0.5" max="2" step="0.1" value={imgBrightness} onChange={(e) => setImgBrightness(e.target.value)} />
+            <span style={{ fontSize: '12px' }}>Blur: {imgBlur}</span>
+            <input type="range" min="0" max="10" step="0.5" value={imgBlur} onChange={(e) => setImgBlur(e.target.value)} />
+            <label style={prominentBtnStyle('#0284c7')}>
+              <Sliders size={14} /> Upload & Fine-Tune Image
               <input type="file" accept="image/*" onChange={handleImageFineTune} style={{ display: 'none' }} />
             </label>
           </div>
         )}
 
-        {activeTab === 'video' && (
-          <form onSubmit={handleVideoStitch} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <h3>Stitch Audio + Video</h3>
-            <label style={{ fontSize: '12px' }}>Video File:</label>
-            <input type="file" name="video" accept="video/*" required style={{ fontSize: '12px' }} />
-            
-            <label style={{ fontSize: '12px' }}>Audio File:</label>
-            <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '12px' }} />
-
-            <button type="submit" style={{ ...btnStyle, marginTop: '10px', backgroundColor: '#8b5cf6' }}>
-              <Music size={18} /> Stitch & Render MP4
-            </button>
+        {activePortal === 'video' && (
+          <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Stitch Tracks:</span>
+            <input type="file" name="video" accept="video/*" required style={{ fontSize: '11px' }} />
+            <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '11px' }} />
+            <button type="submit" style={prominentBtnStyle('#8b5cf6')}><Music size={14} /> Stitch Audio+Video</button>
           </form>
         )}
 
-        {activeTab === 'pdf' && (
-          <form onSubmit={handlePdfEdit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <h3>Edit PDF Document</h3>
-            <label style={{ fontSize: '12px' }}>Text to Add:</label>
-            <input type="text" value={pdfText} onChange={(e) => setPdfText(e.target.value)} placeholder="Type text here..." required style={{ padding: '8px', borderRadius: '4px', border: 'none' }} />
-
-            <label style={{ fontSize: '12px' }}>Upload PDF:</label>
-            <input type="file" name="pdf" accept=".pdf" required style={{ fontSize: '12px' }} />
-
-            <button type="submit" style={{ ...btnStyle, marginTop: '10px', backgroundColor: '#0284c7' }}>
-              <FileText size={18} /> Save & Open PDF
-            </button>
-          </form>
-        )}
-
-        {activeTab === 'transcribe' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <h3>Whisper AI Subtitles</h3>
-            <label style={{ ...btnStyle, backgroundColor: '#ec4899' }}>
-              <Mic size={18} /> Transcribe to Canvas
+        {activePortal === 'transcribe' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <label style={prominentBtnStyle('#ec4899')}>
+              <Mic size={14} /> Transcribe Media to Canvas
               <input type="file" accept="audio/*,video/*" onChange={handleTranscription} style={{ display: 'none' }} />
             </label>
-
-            <hr style={{ borderColor: borderCol, margin: '5px 0' }} />
-
-            <label style={{ ...btnStyle, backgroundColor: '#d946ef' }}>
-              <Captions size={18} /> Auto-Subtitle Video (MP4)
+            <label style={prominentBtnStyle('#d946ef')}>
+              <Captions size={14} /> Auto-Subtitle Video (MP4)
               <input type="file" accept="video/*" onChange={handleAutoSubtitleVideo} style={{ display: 'none' }} />
             </label>
           </div>
         )}
+
       </div>
 
-      {/* Main Studio View & Timeline */}
-      <div style={{ flex: 1, padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>
-          Status: <span style={{ color: '#38bdf8' }}>{status}</span>
-        </div>
+      {/* MAIN BODY WORKSPACE */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-        {/* Canvas Screen */}
-        <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
-          <canvas ref={canvasRef} />
-        </div>
-
-        {/* Video Timeline Scrub Bar */}
-        <div style={{ marginTop: '15px', width: '800px', backgroundColor: bgSidebar, border: `1px solid ${borderCol}`, padding: '15px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Layers size={16} /> Video Timeline Track</span>
-            <span style={{ fontSize: '12px', color: '#0284c7' }}>00:00:{String(timelineSec).padStart(2, '0')} / 00:00:30</span>
-          </div>
-          <input 
-            type="range" 
-            min="0" 
-            max="30" 
-            value={timelineSec} 
-            onChange={(e) => setTimelineSec(e.target.value)}
-            style={{ width: '100%', cursor: 'pointer', accentColor: '#0284c7' }}
-          />
-        </div>
-
-        {/* Transcription Output Display */}
-        {transcriptionText && (
-          <div style={{ marginTop: '15px', width: '800px', backgroundColor: bgSidebar, border: `1px solid ${borderCol}`, padding: '15px', borderRadius: '8px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '5px' }}>Transcription Text:</h3>
-            <p style={{ fontSize: '14px' }}>{transcriptionText}</p>
+        {activePortal === 'pdf' && (
+          <div style={{ width: '180px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Page Navigator</span>
+            {thumbnails.length === 0 && <p style={{ fontSize: '11px', color: '#94a3b8' }}>Open a PDF to view thumbnails.</p>}
+            {thumbnails.map((thumbUrl, idx) => (
+              <div 
+                key={idx} 
+                onClick={() => changePdfPage(idx + 1)}
+                style={{ 
+                  border: pageNum === idx + 1 ? '2px solid #0284c7' : `1px solid ${borderCol}`, 
+                  borderRadius: '4px', 
+                  padding: '3px', 
+                  cursor: 'pointer',
+                  backgroundColor: pageNum === idx + 1 ? 'rgba(2, 132, 199, 0.1)' : 'transparent'
+                }}
+              >
+                <img src={thumbUrl} alt={`Page ${idx + 1}`} style={{ width: '100%', borderRadius: '2px', display: 'block' }} />
+                <span style={{ fontSize: '10px', display: 'block', textAlign: 'center', marginTop: '2px' }}>Page {idx + 1}</span>
+              </div>
+            ))}
           </div>
         )}
+
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: '15px' }}>
+          
+          <div style={{ width: '900px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+              <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={14} /></button>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+              <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={14} /></button>
+              <button title="Fit" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+            </div>
+          </div>
+
+          <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+            <canvas ref={canvasRef} />
+          </div>
+
+          <div style={{ marginTop: '12px', width: '900px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px 15px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><Layers size={14} /> Video Timeline Track</span>
+              <span style={{ fontSize: '11px', color: '#0284c7' }}>00:00:{String(timelineSec).padStart(2, '0')} / 00:00:30</span>
+            </div>
+            <input type="range" min="0" max="30" value={timelineSec} onChange={(e) => setTimelineSec(e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#0284c7' }} />
+          </div>
+
+          {transcriptionText && (
+            <div style={{ marginTop: '10px', width: '900px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px 15px', borderRadius: '6px' }}>
+              <h3 style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '3px' }}>Transcription Text:</h3>
+              <p style={{ fontSize: '12px', margin: 0 }}>{transcriptionText}</p>
+            </div>
+          )}
+
+        </div>
+
       </div>
+
     </div>
   );
 }
 
-const navIconStyle = (active) => ({
-  backgroundColor: active ? '#0369a1' : 'transparent',
-  color: '#fff',
+// Button & Dropdown Styles
+const portalTabStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '6px 12px',
+  backgroundColor: active ? '#0f172a' : 'transparent',
+  color: '#ffffff',
   border: 'none',
-  borderRadius: '8px',
-  padding: '10px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 'bold',
+});
+
+// Prominent White-Font Color Badges for High Visibility
+const prominentBtnStyle = (bgColor) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '6px 12px',
+  backgroundColor: bgColor,
+  color: '#ffffff', // Crisp white font
+  border: 'none',
+  borderRadius: '5px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 'bold', // Bold text
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+});
+
+const iconToolBtnStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '6px 10px',
+  backgroundColor: active ? '#0284c7' : 'transparent',
+  color: active ? '#ffffff' : 'inherit',
+  border: 'none',
+  borderRadius: '4px',
   cursor: 'pointer',
 });
 
-const btnStyle = {
+const dropdownMenuStyle = (bg, border) => ({
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  marginTop: '4px',
+  backgroundColor: bg,
+  border: `1px solid ${border}`,
+  borderRadius: '6px',
+  boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)',
+  padding: '6px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  minWidth: '170px',
+  zIndex: 50,
+});
+
+const dropdownItemStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '10px',
-  padding: '10px 15px',
-  backgroundColor: '#0284c7',
-  color: '#fff',
+  gap: '8px',
+  padding: '6px 8px',
+  backgroundColor: 'transparent',
   border: 'none',
-  borderRadius: '6px',
+  borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '14px',
-  fontWeight: '500',
+  fontSize: '12px',
+  textAlign: 'left',
+  width: '100%',
 };
