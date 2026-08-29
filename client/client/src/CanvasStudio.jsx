@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
+import TranscriptEditor from './components/TranscriptEditor';
 import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
@@ -58,7 +59,7 @@ export default function CanvasStudio() {
   const [redoStack, setRedoStack] = useState([]);
   const [pendingRedactionsCount, setPendingRedactionsCount] = useState(0);
 
-  // Comprehensive Typography State
+  // Typography State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
   const [fontSizeVal, setFontSizeVal] = useState(24);
   const [lineHeightVal, setLineHeightVal] = useState(1.16);
@@ -78,12 +79,45 @@ export default function CanvasStudio() {
 
   const [zoomLevel, setZoomLevel] = useState(1.0);
 
-  // Video Portal & Timeline State
+  // Video Portal, Timeline & Transcription State
   const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
   const [videoDuration, setVideoDuration] = useState(30);
-  const [transcriptionText, setTranscriptionText] = useState('');
+  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas. Your all-in-one editor for video, audio, and text.');
+  
+  const [transcriptSegments, setTranscriptSegments] = useState([
+    {
+      id: 'seg-1',
+      speaker: 'Speaker 1',
+      text: 'Welcome to OmniStudio Canvas.',
+      start: 0,
+      end: 2.5,
+      words: [
+        { id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 },
+        { id: 'w2', word: 'to', start: 0.6, end: 0.8, confidence: 0.98 },
+        { id: 'w3', word: 'OmniStudio', start: 0.9, end: 1.8, confidence: 0.95 },
+        { id: 'w4', word: 'Canvas.', start: 1.9, end: 2.5, confidence: 0.99 }
+      ]
+    },
+    {
+      id: 'seg-2',
+      speaker: 'Speaker 1',
+      text: 'Your all-in-one editor for video, audio, and text.',
+      start: 2.8,
+      end: 6.0,
+      words: [
+        { id: 'w5', word: 'Your', start: 2.8, end: 3.1, confidence: 0.97 },
+        { id: 'w6', word: 'all-in-one', start: 3.2, end: 3.9, confidence: 0.96 },
+        { id: 'w7', word: 'editor', start: 4.0, end: 4.5, confidence: 0.99 },
+        { id: 'w8', word: 'for', start: 4.6, end: 4.8, confidence: 0.98 },
+        { id: 'w9', word: 'video,', start: 4.9, end: 5.2, confidence: 0.99 },
+        { id: 'w10', word: 'audio,', start: 5.3, end: 5.6, confidence: 0.99 },
+        { id: 'w11', word: 'and', start: 5.7, end: 5.8, confidence: 0.98 },
+        { id: 'w12', word: 'text.', start: 5.9, end: 6.0, confidence: 0.99 }
+      ]
+    }
+  ]);
 
   const [clips] = useState([
     { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
@@ -164,7 +198,6 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- SAFE ADD TEXT FUNCTION (FIXES WHITE-SCREEN CRASH BUG) ---
   const addText = () => {
     try {
       if (!isEditMode) initializeEditProcess();
@@ -202,7 +235,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // --- MULTI-PAGE PDF EXPORT ENGINE ---
   const exportCompletePdf = async () => {
     if (!pdfDoc || !fabricCanvas) {
       alert('Please upload a PDF document first to export as PDF!');
@@ -600,7 +632,6 @@ export default function CanvasStudio() {
     activateToolMode('pointReplace');
   };
 
-  // --- DYNAMIC DUAL FIT MODE ENGINE ---
   const renderPdfPageOntoCanvas = async (pdf, pageNumber, mode = fitMode) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -892,22 +923,6 @@ export default function CanvasStudio() {
     }
   };
 
-  const alignTextVertical = (pos) => {
-    if (!fabricCanvas) return;
-    const activeObject = fabricCanvas.getActiveObject();
-    if (!activeObject) return;
-
-    const canvasHeight = fabricCanvas.height;
-    const objHeight = activeObject.height * (activeObject.scaleY || 1);
-
-    if (pos === 'top') activeObject.set('top', 15);
-    else if (pos === 'middle') activeObject.set('top', (canvasHeight - objHeight) / 2);
-    else if (pos === 'bottom') activeObject.set('top', canvasHeight - objHeight - 15);
-
-    fabricCanvas.renderAll();
-    saveState();
-  };
-
   const addWhiteoutEraser = () => {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
@@ -1006,30 +1021,6 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
   };
 
-  const saveProjectJson = () => {
-    if (!fabricCanvas) return;
-    const jsonStr = JSON.stringify(fabricCanvas.toJSON());
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `omnistudio-project-${Date.now()}.json`;
-    link.click();
-    setStatus('Project saved as JSON!');
-  };
-
-  const loadProjectJson = (e) => {
-    const file = e.target.files[0];
-    if (!file || !fabricCanvas) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      fabricCanvas.loadFromJSON(event.target.result, () => {
-        fabricCanvas.renderAll();
-        setStatus('Project JSON loaded onto canvas!');
-      });
-    };
-    reader.readAsText(file);
-  };
-
   const handleImageUpload = (e) => {
     if (!isEditMode) initializeEditProcess();
     const file = e.target.files[0];
@@ -1090,55 +1081,6 @@ export default function CanvasStudio() {
     }
   };
 
-  const handleImageFineTune = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setStatus('Fine-tuning image with Sharp backend...');
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('brightness', imgBrightness);
-    formData.append('blur', imgBlur);
-    formData.append('format', 'png');
-
-    try {
-      const res = await axios.post(`${API_BASE}/image/edit`, formData);
-      const imageUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      const imgObj = await fabric.FabricImage.fromURL(imageUrl);
-      imgObj.scaleToWidth(350);
-      fabricCanvas.add(imgObj);
-      setStatus('Image fine-tuned and added to canvas!');
-    } catch (err) {
-      setStatus(`Error: ${err.message}`);
-    }
-  };
-
-  const handleVideoStitch = async (e) => {
-    e.preventDefault();
-    const videoFile = e.target.video.files[0];
-    const audioFile = e.target.audio.files[0];
-
-    if (!videoFile || !audioFile) {
-      alert('Please select both a video and an audio file.');
-      return;
-    }
-
-    setStatus('Stitching Audio + Video with FFmpeg...');
-    const formData = new FormData();
-    formData.append('video', videoFile);
-    formData.append('audio', audioFile);
-
-    try {
-      const res = await axios.post(`${API_BASE}/video/stitch`, formData);
-      const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      setVideoPreviewUrl(fileUrl);
-      setActivePortal('video');
-      setStatus(`Stitching Complete! Video loaded into Video Portal.`);
-    } catch (err) {
-      setStatus(`Error stitching: ${err.message}`);
-    }
-  };
-
   const handleTranscription = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1149,8 +1091,13 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/transcribe`, formData);
-      const text = res.data.transcription.text;
+      const text = res.data.transcript ? res.data.transcript.map(s => s.text).join(' ') : (res.data.transcription?.text || '');
+      const segments = res.data.transcript || res.data.transcription?.segments || [
+        { id: crypto.randomUUID(), text: text || 'Transcribed text output', start: 0, end: 10, words: [] }
+      ];
+
       setTranscriptionText(text);
+      setTranscriptSegments(segments);
 
       const textObj = new fabric.IText(text, { left: 50, top: 350, fontSize: 18, fill: '#1e293b', width: 700, splitByGrapheme: true });
       fabricCanvas.add(textObj);
@@ -1172,7 +1119,14 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/auto-subtitle`, formData);
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
-      setTranscriptionText(res.data.transcriptionText);
+
+      const text = res.data.transcriptionText || '';
+      const segments = res.data.transcript || res.data.transcription?.segments || [
+        { id: crypto.randomUUID(), text: text || 'Subtitled video text', start: 0, end: 10, words: [] }
+      ];
+
+      setTranscriptionText(text);
+      setTranscriptSegments(segments);
       setActivePortal('video');
       setStatus(`Subtitled video ready! Playing in Video Portal...`);
     } catch (err) {
@@ -1263,14 +1217,13 @@ export default function CanvasStudio() {
           <button onClick={() => setFluentTab('media')} style={fluentTabBtnStyle(fluentTab === 'media', darkMode)}>Media & AI</button>
         </div>
 
-        {/* FLUENT RIBBON CONTENT PANELS (CATEGORIZED GROUPS) */}
+        {/* FLUENT RIBBON CONTENT PANELS */}
         <div className="custom-scroll" style={{ padding: '6px 12px', minHeight: '48px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px' }}>
           
           {/* TAB 1: HOME */}
           {fluentTab === 'home' && (
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
               
-              {/* Group: File & History */}
               <div style={fluentGroupStyle(borderCol)}>
                 <label style={prominentBtnStyle('#0284c7')}>
                   <Upload size={13} /> Open PDF
@@ -1283,7 +1236,6 @@ export default function CanvasStudio() {
                 <span style={fluentGroupCaptionStyle}>History</span>
               </div>
 
-              {/* Group: Selection & Pointer Tools */}
               <div style={fluentGroupStyle(borderCol)}>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={13} /></button>
@@ -1292,7 +1244,6 @@ export default function CanvasStudio() {
                 <span style={fluentGroupCaptionStyle}>Pointer</span>
               </div>
 
-              {/* Group: Text Tools */}
               <div style={fluentGroupStyle(borderCol)}>
                 <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
                   <Type size={13} /> Add Text
@@ -1303,7 +1254,6 @@ export default function CanvasStudio() {
                 <span style={fluentGroupCaptionStyle}>Text Tools</span>
               </div>
 
-              {/* Group: Quick Annotations */}
               <div style={fluentGroupStyle(borderCol)}>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}><Highlighter size={13} /> Highlight</button>
@@ -1464,7 +1414,7 @@ export default function CanvasStudio() {
           <button onClick={exitTextEditing} style={prominentBtnStyle('#ef4444')}><LogOut size={12} /> Exit Text Box / Done</button>
         )}
 
-        {/* CATEGORIZED TYPOGRAPHY SUITE */}
+        {/* TYPOGRAPHY SUITE */}
         <select 
           value={fontFamilyVal} 
           onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
@@ -1524,13 +1474,13 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Line Height (Spacing) */}
+        {/* Line Height */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Line Height Spacing">
           Line Spacing:
           <input type="number" min="0.8" max="3.0" step="0.1" value={lineHeightVal} onChange={(e) => { setLineHeightVal(Number(e.target.value)); updateActiveTextProp('lineHeight', Number(e.target.value)); }} style={{ width: '40px', padding: '1px 3px', fontSize: '10px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }} />
         </label>
 
-        {/* Letter Spacing (Kerning/Tracking) */}
+        {/* Character Spacing */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Character Spacing / Kerning">
           Kerning:
           <input type="number" min="-50" max="500" step="10" value={charSpacingVal} onChange={(e) => { setCharSpacingVal(Number(e.target.value)); updateActiveTextProp('charSpacing', Number(e.target.value)); }} style={{ width: '42px', padding: '1px 3px', fontSize: '10px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }} />
@@ -1554,7 +1504,7 @@ export default function CanvasStudio() {
       {/* 4. MAIN ISOLATED PORTAL WORKSPACE */}
       <div className="custom-scroll" style={{ display: 'flex', flex: 1, overflowY: 'auto', boxSizing: 'border-box' }}>
 
-        {/* --- PORTAL TYPE A: PDF DOCUMENT PORTAL --- */}
+        {/* --- PORTAL TYPE A: PDF DOCUMENT / CANVAS / IMAGE / TRANSCRIBE PORTAL --- */}
         {(activePortal === 'pdf' || activePortal === 'canvas' || activePortal === 'image' || activePortal === 'transcribe') && (
           <div style={{ display: 'flex', width: '100%', minHeight: '100%' }}>
             {activePortal === 'pdf' && (
@@ -1584,7 +1534,7 @@ export default function CanvasStudio() {
               <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
                 
-                {/* DYNAMIC ZOOM FIT TOOLBAR (page-width & page-fit) */}
+                {/* DYNAMIC ZOOM FIT TOOLBAR */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
                   <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
                   <span style={{ fontSize: '11px', fontWeight: 'bold', width: '38px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
@@ -1592,11 +1542,11 @@ export default function CanvasStudio() {
                   
                   <div style={{ width: '1px', height: '14px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-                  <button title="Fit to Width (page-width): Hugs left/right margins for maximum 4K/Retina readability" onClick={() => handleToggleFitMode('width')} style={fitModeBtnStyle(fitMode === 'width')}>
+                  <button title="Fit to Width (page-width)" onClick={() => handleToggleFitMode('width')} style={fitModeBtnStyle(fitMode === 'width')}>
                     <MoveHorizontal size={12} /> Fit Width
                   </button>
 
-                  <button title="Fit to Page (page-fit): Scales full page into viewport" onClick={() => handleToggleFitMode('page')} style={fitModeBtnStyle(fitMode === 'page')}>
+                  <button title="Fit to Page (page-fit)" onClick={() => handleToggleFitMode('page')} style={fitModeBtnStyle(fitMode === 'page')}>
                     <Maximize2 size={12} /> Fit Page
                   </button>
 
@@ -1604,7 +1554,7 @@ export default function CanvasStudio() {
                 </div>
               </div>
 
-              {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
+              {/* CANVAS CONTAINER */}
               <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
                 
                 {activeEditingObject && (
@@ -1637,12 +1587,30 @@ export default function CanvasStudio() {
                 <canvas ref={canvasRef} />
               </div>
 
-              {transcriptionText && (
-                <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px' }}>
-                  <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
-                  <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
+              {/* INTERACTIVE AI TRANSCRIPT EDITOR (IN TRANSCRIBE PORTAL) */}
+              {activePortal === 'transcribe' && (
+                <div style={{ width: '820px', marginTop: '12px' }}>
+                  <TranscriptEditor 
+                    segments={transcriptSegments}
+                    currentTime={timelineSec}
+                    onSeek={(time) => {
+                      setTimelineSec(time);
+                      if (videoRef.current) videoRef.current.currentTime = time;
+                    }}
+                    onTranscriptChange={(id, newText) => {
+                      setTranscriptSegments((prev) => 
+                        prev.map((seg) => seg.id === id ? { ...seg, text: newText } : seg)
+                      );
+                      setTranscriptionText((prev) => 
+                        transcriptSegments.map((seg) => seg.id === id ? newText : seg.text).join(' ')
+                      );
+                      setStatus(`Updated transcript segment text!`);
+                    }}
+                    darkMode={darkMode}
+                  />
                 </div>
               )}
+
             </div>
           </div>
         )}
@@ -1680,6 +1648,7 @@ export default function CanvasStudio() {
                 )}
               </div>
 
+              {/* TIMELINE EDITOR TRACKS */}
               <TimelineEditor 
                 tracks={[
                   { id: 't1', name: 'Video Track 1', type: 'video', isMuted: false, isLocked: false },
@@ -1695,6 +1664,27 @@ export default function CanvasStudio() {
                 onScrub={handleTimelineScrub}
                 darkMode={darkMode}
               />
+
+              {/* INTERACTIVE AI TRANSCRIPT EDITOR (IN VIDEO PORTAL) */}
+              <TranscriptEditor 
+                segments={transcriptSegments}
+                currentTime={timelineSec}
+                onSeek={(time) => {
+                  setTimelineSec(time);
+                  if (videoRef.current) videoRef.current.currentTime = time;
+                }}
+                onTranscriptChange={(id, newText) => {
+                  setTranscriptSegments((prev) => 
+                    prev.map((seg) => seg.id === id ? { ...seg, text: newText } : seg)
+                  );
+                  setTranscriptionText((prev) => 
+                    transcriptSegments.map((seg) => seg.id === id ? newText : seg.text).join(' ')
+                  );
+                  setStatus(`Updated transcript segment text!`);
+                }}
+                darkMode={darkMode}
+              />
+
             </div>
           </div>
         )}
