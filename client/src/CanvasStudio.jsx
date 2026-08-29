@@ -9,7 +9,7 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, ChevronRight, MoreHorizontal
+  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -26,9 +26,9 @@ export default function CanvasStudio() {
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready');
 
-  // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight'
+  // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight' | 'pointReplace'
   const [activeTool, setActiveTool] = useState('select');
-  const [activeDropdown, setActiveDropdown] = useState(null); // 'eraser' | 'image' | 'shapes' | 'moreTools'
+  const [activeDropdown, setActiveDropdown] = useState(null);
 
   // Search & Signature Modals
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,6 +145,111 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
+  // --- AUTOMATED FIND & REPLACE ENGINE ---
+  const handleFindAndReplace = () => {
+    if (!fabricCanvas) return;
+    const findText = prompt('Enter text to Find in document (e.g., 2025):');
+    if (!findText) return;
+    const replaceText = prompt(`Replace "${findText}" with:`, '2026');
+    if (replaceText === null) return;
+
+    const matchOriginal = confirm('Do you want to MATCH original font style?\n\nOK = Match Original Style\nCancel = Use Custom Text Inspector Style');
+
+    let count = 0;
+    fabricCanvas.getObjects().forEach((obj) => {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.includes(findText)) {
+        const left = obj.left;
+        const top = obj.top;
+        const fontSz = matchOriginal ? (obj.fontSize || fontSizeVal) : fontSizeVal;
+        const fontFam = matchOriginal ? (obj.fontFamily || fontFamilyVal) : fontFamilyVal;
+        const fontCol = matchOriginal ? (obj.fill || textColorVal) : textColorVal;
+
+        // Auto Whiteout Box
+        const whiteout = new fabric.Rect({
+          left: left - 2,
+          top: top - 2,
+          width: (obj.width * (obj.scaleX || 1)) + 10,
+          height: (obj.height * (obj.scaleY || 1)) + 5,
+          fill: '#ffffff',
+          stroke: '#cbd5e1',
+          strokeWidth: 1,
+        });
+
+        // Replacement Text Box
+        const newText = new fabric.IText(obj.text.replace(findText, replaceText), {
+          left: left,
+          top: top,
+          fontSize: fontSz,
+          fontFamily: fontFam,
+          fill: fontCol,
+        });
+
+        fabricCanvas.add(whiteout);
+        fabricCanvas.add(newText);
+        count++;
+      }
+    });
+
+    if (count > 0) {
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus(`Replaced ${count} instance(s) of "${findText}" with "${replaceText}"!`);
+    } else {
+      alert(`No editable text matches for "${findText}". If this is a scanned PDF image, use "Point & Replace" to click directly on the area!`);
+    }
+  };
+
+  // --- INTERACTIVE POINT-TO-REPLACE ENGINE (FOR SCANNED / ILLEGIBLE DOCUMENTS) ---
+  const activatePointToReplace = () => {
+    if (!fabricCanvas) return;
+    setStatus('🎯 Click anywhere on the document to Whiteout and Replace text!');
+    setActiveTool('pointReplace');
+
+    const clickHandler = (opt) => {
+      const pointer = fabricCanvas.getPointer(opt.e);
+      
+      const replaceText = prompt('Enter replacement text for clicked area:');
+      if (!replaceText) {
+        setActiveTool('select');
+        return;
+      }
+
+      const matchStyle = confirm('Match standard document style?\n\nOK = Standard Document Style (Arial 22px)\nCancel = Use Custom Inspector Style');
+
+      // Auto Whiteout at clicked location
+      const whiteout = new fabric.Rect({
+        left: pointer.x - 4,
+        top: pointer.y - 4,
+        width: Math.max(120, replaceText.length * 12),
+        height: 32,
+        fill: '#ffffff',
+        stroke: '#cbd5e1',
+        strokeWidth: 1,
+      });
+
+      // Replacement Text at clicked location
+      const newText = new fabric.IText(replaceText, {
+        left: pointer.x,
+        top: pointer.y,
+        fontSize: matchStyle ? 22 : fontSizeVal,
+        fontFamily: matchStyle ? 'Arial' : fontFamilyVal,
+        fill: matchStyle ? '#0f172a' : textColorVal,
+      });
+
+      fabricCanvas.add(whiteout);
+      fabricCanvas.add(newText);
+      fabricCanvas.setActiveObject(newText);
+      fabricCanvas.renderAll();
+      saveState();
+
+      setActiveTool('select');
+      fabricCanvas.off('mouse:down', clickHandler);
+      setStatus(`Replaced text at target location!`);
+    };
+
+    fabricCanvas.once('mouse:down', clickHandler);
+  };
+
   // --- TOP GLOBAL ACTIONS (PRINT, SHARE, SEARCH, DONE) ---
   const handlePrint = () => {
     if (!fabricCanvas) return;
@@ -195,7 +300,7 @@ export default function CanvasStudio() {
     alert('🎉 Document editing is complete! You can download or export your page.');
   };
 
-  // --- NEW ANNOTATION TOOLS (CHECK, CROSS, SIGN, LINK) ---
+  // --- ANNOTATION TOOLS (CHECK, CROSS, SIGN, LINK) ---
   const addCheckmark = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -252,7 +357,7 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // --- MORE TOOLS ENGINE (CROP, PAGE LAYOUT, MANAGE PAGES) ---
+  // --- MORE TOOLS ENGINE ---
   const handleCropTool = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
@@ -325,34 +430,6 @@ export default function CanvasStudio() {
 
     fabricCanvas.renderAll();
     saveState();
-  };
-
-  const activateToolMode = (mode) => {
-    if (!fabricCanvas) return;
-    setActiveTool(mode);
-    setActiveDropdown(null);
-
-    fabricCanvas.isDrawingMode = false;
-    fabricCanvas.selection = true;
-
-    if (mode === 'hand') {
-      fabricCanvas.selection = false;
-      fabricCanvas.defaultCursor = 'grab';
-    } else if (mode === 'draw') {
-      fabricCanvas.isDrawingMode = true;
-      const brush = new fabric.PencilBrush(fabricCanvas);
-      brush.width = 3;
-      brush.color = '#ef4444';
-      fabricCanvas.freeDrawingBrush = brush;
-    } else if (mode === 'highlight') {
-      fabricCanvas.isDrawingMode = true;
-      const brush = new fabric.PencilBrush(fabricCanvas);
-      brush.width = 18;
-      brush.color = 'rgba(250, 204, 21, 0.4)';
-      fabricCanvas.freeDrawingBrush = brush;
-    } else {
-      fabricCanvas.defaultCursor = 'default';
-    }
   };
 
   const handlePdfDocumentUpload = async (e) => {
@@ -729,7 +806,7 @@ export default function CanvasStudio() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
-      {/* 1. TOP PORTAL SWITCHER & GLOBAL DOCUMENT ACTIONS (PRINT, SHARE, SEARCH, DONE) */}
+      {/* 1. TOP PORTAL SWITCHER & GLOBAL ACTIONS */}
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '6px', zIndex: 40, boxSizing: 'border-box' }}>
         <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={16} /> OmniStudio</span>
         
@@ -741,10 +818,10 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
-        {/* SEARCH, PRINT, SHARE, DONE GLOBAL ACTIONS */}
+        {/* GLOBAL HEADER ACTIONS */}
         <button title="Search Text" onClick={handleSearch} style={globalHeaderBtnStyle}><Search size={13} /> Search</button>
         <button title="Print Document Page" onClick={handlePrint} style={globalHeaderBtnStyle}><Printer size={13} /> Print</button>
-        <button title="Download / Export" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
+        <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
         <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
@@ -756,7 +833,7 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON (INCLUDES CHECK, CROSS, SIGN, LINK, MORE TOOLS) */}
+      {/* 2. SECONDARY TOOL RIBBON (INCLUDES FIND & REPLACE, POINT & REPLACE, CHECK, CROSS, SIGN, LINK) */}
       <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
@@ -775,12 +852,22 @@ export default function CanvasStudio() {
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Hand / Pan Tool (Click & Drag View)" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
               <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
               <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
                 <Type size={14} /> Text
+              </button>
+
+              {/* AUTOMATED FIND & REPLACE TOOL */}
+              <button title="Automated Find & Replace Text" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
+                <RefreshCw size={14} /> Find & Replace
+              </button>
+
+              {/* INTERACTIVE POINT-TO-REPLACE TOOL (FOR SCANNED / ILLEGIBLE DOCS) */}
+              <button title="Click directly on document area to Whiteout & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+                <Target size={14} /> Point & Replace
               </button>
 
               <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
@@ -791,7 +878,6 @@ export default function CanvasStudio() {
                 <Pencil size={14} /> Draw
               </button>
 
-              {/* CHECKMARK & CROSSMARK QUICK ANNOTATIONS */}
               <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
                 <Check size={14} /> Check
               </button>
@@ -800,12 +886,10 @@ export default function CanvasStudio() {
                 <X size={14} /> Cross
               </button>
 
-              {/* ELECTRONIC SIGNATURE TOOL */}
               <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}>
                 <PenTool size={14} /> Sign
               </button>
 
-              {/* HYPERLINK ATTACHMENT TOOL */}
               <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
                 <Link size={14} /> Links
               </button>
@@ -859,7 +943,7 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* MORE TOOLS SUBMENU (CROP, ZOOM, LAYOUT, MANAGE PAGES) */}
+              {/* MORE TOOLS SUBMENU */}
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
                   More Tools <ChevronRight size={11} />
