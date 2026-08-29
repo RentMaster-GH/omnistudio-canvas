@@ -24,7 +24,7 @@ export default function CanvasStudio() {
   const videoRef = useRef(null); // Dedicated Video Player Ref
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  const [activePortal, setActivePortal] = useState('pdf');
+  const [activePortal, setActivePortal] = useState('pdf'); // 'pdf' | 'canvas' | 'image' | 'video' | 'transcribe'
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready - View Mode');
 
@@ -947,7 +947,8 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/render-canvas`, { frames, fps: 30 });
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
-      setStatus(`Animation exported! Loaded into Video Portal.`);
+      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setStatus(`Animation exported! Playing in Video Portal...`);
     } catch (err) {
       setStatus(`Error rendering MP4: ${err.message}`);
     }
@@ -995,7 +996,8 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/stitch`, formData);
       const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(fileUrl);
-      setStatus(`Stitching Complete! Output loaded into Video Portal.`);
+      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setStatus(`Stitching Complete! Video loaded into Video Portal.`);
     } catch (err) {
       setStatus(`Error stitching: ${err.message}`);
     }
@@ -1035,7 +1037,8 @@ export default function CanvasStudio() {
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
       setTranscriptionText(res.data.transcriptionText);
-      setStatus(`Subtitled video ready! Loaded into Video Portal.`);
+      setActivePortal('video'); // AUTO SWITCH TO VIDEO PORTAL!
+      setStatus(`Subtitled video ready! Playing in Video Portal...`);
     } catch (err) {
       setStatus(`Error generating subtitled video: ${err.message}`);
     }
@@ -1082,7 +1085,7 @@ export default function CanvasStudio() {
         <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={13} /> PDF Portal</button>
         <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={13} /> Canvas Studio</button>
         <button onClick={() => setActivePortal('image')} style={portalTabStyle(activePortal === 'image')}><Sliders size={13} /> Image Filters</button>
-        <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video & Audio</button>
+        <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video Portal</button>
         <button onClick={() => setActivePortal('transcribe')} style={portalTabStyle(activePortal === 'transcribe')}><Mic size={13} /> AI Subtitles</button>
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
@@ -1277,10 +1280,10 @@ export default function CanvasStudio() {
 
         {activePortal === 'video' && (
           <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Stitch Tracks:</span>
+            <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Stitch Audio & Video Tracks:</span>
             <input type="file" name="video" accept="video/*" required style={{ fontSize: '10px' }} />
             <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '10px' }} />
-            <button type="submit" style={prominentBtnStyle('#8b5cf6')}><Music size={13} /> Stitch Audio+Video</button>
+            <button type="submit" style={prominentBtnStyle('#8b5cf6')}><Music size={13} /> Stitch Tracks</button>
           </form>
         )}
 
@@ -1361,135 +1364,137 @@ export default function CanvasStudio() {
         </label>
       </div>
 
-      {/* 4. MAIN WORKSPACE (Scrollable to View ALL Features) */}
+      {/* 4. MAIN ISOLATED PORTAL WORKSPACE (Scrollable) */}
       <div className="custom-scroll" style={{ display: 'flex', flex: 1, overflowY: 'auto', boxSizing: 'border-box' }}>
 
-        {/* PAGE NAVIGATOR SIDEBAR */}
-        {activePortal === 'pdf' && (
-          <div style={{ width: '160px', minWidth: '160px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box' }}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Page Navigator</span>
-            {thumbnails.length === 0 && <p style={{ fontSize: '10px', color: '#94a3b8' }}>Open a PDF to view thumbnails.</p>}
-            {thumbnails.map((thumbUrl, idx) => (
-              <div 
-                key={idx} 
-                onClick={() => changePdfPage(idx + 1)}
-                style={{ 
-                  border: pageNum === idx + 1 ? '2px solid #0284c7' : `1px solid ${borderCol}`, 
-                  borderRadius: '4px', 
-                  padding: '2px', 
-                  cursor: 'pointer',
-                  backgroundColor: pageNum === idx + 1 ? 'rgba(2, 132, 199, 0.1)' : 'transparent'
-                }}
-              >
-                <img src={thumbUrl} alt={`Page ${idx + 1}`} style={{ width: '100%', borderRadius: '2px', display: 'block' }} />
-                <span style={{ fontSize: '10px', display: 'block', textAlign: 'center', marginTop: '2px' }}>Page {idx + 1}</span>
+        {/* --- PORTAL TYPE A: PDF DOCUMENT PORTAL --- */}
+        {(activePortal === 'pdf' || activePortal === 'canvas' || activePortal === 'image' || activePortal === 'transcribe') && (
+          <div style={{ display: 'flex', width: '100%', minHeight: '100%' }}>
+            {activePortal === 'pdf' && (
+              <div style={{ width: '160px', minWidth: '160px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Page Navigator</span>
+                {thumbnails.length === 0 && <p style={{ fontSize: '10px', color: '#94a3b8' }}>Open a PDF to view page thumbnails.</p>}
+                {thumbnails.map((thumbUrl, idx) => (
+                  <div 
+                    key={idx} 
+                    onClick={() => changePdfPage(idx + 1)}
+                    style={{ 
+                      border: pageNum === idx + 1 ? '2px solid #0284c7' : `1px solid ${borderCol}`, 
+                      borderRadius: '4px', 
+                      padding: '2px', 
+                      cursor: 'pointer',
+                      backgroundColor: pageNum === idx + 1 ? 'rgba(2, 132, 199, 0.1)' : 'transparent'
+                    }}
+                  >
+                    <img src={thumbUrl} alt={`Page ${idx + 1}`} style={{ width: '100%', borderRadius: '2px', display: 'block' }} />
+                    <span style={{ fontSize: '10px', display: 'block', textAlign: 'center', marginTop: '2px' }}>Page {idx + 1}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
+
+            <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', boxSizing: 'border-box' }}>
+              <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+                  <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+                  <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
+                  <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+                </div>
+              </div>
+
+              <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+                <canvas ref={canvasRef} />
+              </div>
+
+              {transcriptionText && (
+                <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px' }}>
+                  <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
+                  <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* CENTER CONTENT DISPLAY */}
-        <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box' }}>
-          
-          {/* Status Header & Zoom Controls */}
-          <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
-              <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
-              <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
-              <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
-            </div>
-          </div>
-
-          {/* Document Canvas Display */}
-          <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
-            <canvas ref={canvasRef} />
-          </div>
-
-          {/* DEDICATED VIDEO STUDIO & TIMELINE PORTAL */}
-          <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '16px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Film size={16} /> Dedicated Video Preview Portal & Timeline Track
-              </span>
-              {videoPreviewUrl && (
-                <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 'bold' }}>
-                  Media Loaded & Synced
+        {/* --- PORTAL TYPE B: DEDICATED ISOLATED VIDEO & AUDIO PORTAL --- */}
+        {activePortal === 'video' && (
+          <div style={{ flex: 1, padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box', width: '100%' }}>
+            <div style={{ width: '860px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '20px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '15px', fontWeight: 'bold', color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Film size={20} /> Dedicated Video Preview Portal & Timeline Studio
                 </span>
-              )}
-            </div>
-
-            {/* Video Player Display */}
-            <div style={{ width: '100%', height: '320px', backgroundColor: '#000000', borderRadius: '6px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: `1px solid ${borderCol}` }}>
-              {videoPreviewUrl ? (
-                <video
-                  ref={videoRef}
-                  src={videoPreviewUrl}
-                  onTimeUpdate={handleVideoTimeUpdate}
-                  onLoadedMetadata={handleVideoLoadedMetadata}
-                  onEnded={() => setIsPlaying(false)}
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-              ) : (
-                <div style={{ color: '#64748b', fontSize: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                  <Film size={32} />
-                  <span>No video loaded. Stitch media, render canvas animation, or auto-subtitle a video to preview here.</span>
-                </div>
-              )}
-            </div>
-
-            {/* Video Playhead & Scrubber */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button 
-                onClick={togglePlayPause} 
-                disabled={!videoPreviewUrl}
-                style={{
-                  backgroundColor: videoPreviewUrl ? '#0284c7' : '#334155',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: videoPreviewUrl ? 'pointer' : 'not-allowed'
-                }}
-              >
-                {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-              </button>
-
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
-                  <span><Layers size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Timeline Track</span>
-                  <span style={{ fontWeight: 'bold', color: textColor }}>
-                    {formatTime(timelineSec)} / {formatTime(videoDuration)}
+                {videoPreviewUrl && (
+                  <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 'bold', backgroundColor: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '4px' }}>
+                    Media Loaded & Synced
                   </span>
-                </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max={videoDuration} 
-                  step="0.1"
-                  value={timelineSec} 
-                  onChange={handleTimelineScrub}
+                )}
+              </div>
+
+              {/* Dedicated Standalone Video Player Screen */}
+              <div style={{ width: '100%', height: '420px', backgroundColor: '#000000', borderRadius: '8px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: `1px solid ${borderCol}` }}>
+                {videoPreviewUrl ? (
+                  <video
+                    ref={videoRef}
+                    src={videoPreviewUrl}
+                    onTimeUpdate={handleVideoTimeUpdate}
+                    onLoadedMetadata={handleVideoLoadedMetadata}
+                    onEnded={() => setIsPlaying(false)}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                ) : (
+                  <div style={{ color: '#64748b', fontSize: '13px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    <Film size={40} />
+                    <span>No video active. Stitch media tracks, render canvas animations, or auto-subtitle a video to preview here.</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Video Timeline Playhead Scrubber */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <button 
+                  onClick={togglePlayPause} 
                   disabled={!videoPreviewUrl}
-                  style={{ width: '100%', cursor: videoPreviewUrl ? 'pointer' : 'not-allowed', accentColor: '#8b5cf6' }}
-                />
+                  style={{
+                    backgroundColor: videoPreviewUrl ? '#0284c7' : '#334155',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '38px',
+                    height: '38px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: videoPreviewUrl ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+                </button>
+
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#94a3b8' }}>
+                    <span><Layers size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Video Timeline Track</span>
+                    <span style={{ fontWeight: 'bold', color: textColor }}>
+                      {formatTime(timelineSec)} / {formatTime(videoDuration)}
+                    </span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max={videoDuration} 
+                    step="0.1"
+                    value={timelineSec} 
+                    onChange={handleTimelineScrub}
+                    disabled={!videoPreviewUrl}
+                    style={{ width: '100%', cursor: videoPreviewUrl ? 'pointer' : 'not-allowed', accentColor: '#8b5cf6' }}
+                  />
+                </div>
               </div>
             </div>
           </div>
-
-          {/* Transcription Output Display */}
-          {transcriptionText && (
-            <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
-              <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
-            </div>
-          )}
-
-        </div>
+        )}
 
       </div>
 
