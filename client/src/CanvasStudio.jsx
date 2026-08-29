@@ -9,7 +9,7 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -29,6 +29,7 @@ export default function CanvasStudio() {
   const [status, setStatus] = useState('Ready - View Mode');
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [activeEditingObject, setActiveEditingObject] = useState(null);
 
   // Tool Modes: 'hand' | 'select' | 'draw' | 'highlight' | 'pointReplace' | 'redact' | 'flatten'
   const [activeTool, setActiveTool] = useState('hand');
@@ -38,6 +39,7 @@ export default function CanvasStudio() {
   const [searchQuery, setSearchQuery] = useState('');
   const [signatureName, setSignatureName] = useState('John Doe');
 
+  // History Action Stacks
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
 
@@ -119,8 +121,25 @@ export default function CanvasStudio() {
       }
     });
 
-    canvas.on('selection:created', (e) => updateInspectorFromSelection(e.selected[0]));
-    canvas.on('selection:updated', (e) => updateInspectorFromSelection(e.selected[0]));
+    canvas.on('selection:created', (e) => {
+      const selectedObj = e.selected[0];
+      setActiveEditingObject(selectedObj);
+      updateInspectorFromSelection(selectedObj);
+    });
+
+    canvas.on('selection:updated', (e) => {
+      const selectedObj = e.selected[0];
+      setActiveEditingObject(selectedObj);
+      updateInspectorFromSelection(selectedObj);
+    });
+
+    canvas.on('selection:cleared', () => {
+      setActiveEditingObject(null);
+    });
+
+    canvas.on('text:changed', () => {
+      saveState(canvas);
+    });
 
     setFabricCanvas(canvas);
     saveState(canvas);
@@ -128,32 +147,60 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- UNDO & REDO HANDLERS ---
+  // --- SAVE STATE (FULL SNAPSHOT WITH CUSTOM PROPS) ---
+  const saveState = (targetCanvas = fabricCanvas) => {
+    if (!targetCanvas) return;
+    const json = targetCanvas.toJSON(['isPendingRedaction', 'isRedacted', 'id', 'linkUrl']);
+    setUndoStack((prev) => [...prev, JSON.stringify(json)]);
+    setRedoStack([]);
+  };
+
+  // --- ENHANCEMENT 2: THE SAFETY NET UNDO ENGINE ---
   const handleUndo = () => {
     if (undoStack.length <= 1 || !fabricCanvas) return;
-    const current = undoStack[undoStack.length - 1];
-    const newUndo = undoStack.slice(0, undoStack.length - 1);
-    const previous = newUndo[newUndo.length - 1];
+    const currentCanvasJson = undoStack[undoStack.length - 1];
+    const newUndoStack = undoStack.slice(0, undoStack.length - 1);
+    const previousCanvasJson = newUndoStack[newUndoStack.length - 1];
 
-    setRedoStack((prev) => [current, ...prev]);
-    setUndoStack(newUndo);
+    setRedoStack((prev) => [currentCanvasJson, ...prev]);
+    setUndoStack(newUndoStack);
 
-    fabricCanvas.loadFromJSON(previous, () => {
+    fabricCanvas.loadFromJSON(previousCanvasJson, () => {
       fabricCanvas.renderAll();
+      setStatus('↺ Undo Safety Net: Reverted text strings, formatting, and layout spacing to exact prior state.');
     });
   };
 
+  // --- ENHANCEMENT 3: THE FORWARD RESTORER REDO ENGINE ---
   const handleRedo = () => {
     if (redoStack.length === 0 || !fabricCanvas) return;
-    const next = redoStack[0];
-    const newRedo = redoStack.slice(1);
+    const nextCanvasJson = redoStack[0];
+    const newRedoStack = redoStack.slice(1);
 
-    setUndoStack((prev) => [...prev, next]);
-    setRedoStack(newRedo);
+    setUndoStack((prev) => [...prev, nextCanvasJson]);
+    setRedoStack(newRedoStack);
 
-    fabricCanvas.loadFromJSON(next, () => {
+    fabricCanvas.loadFromJSON(nextCanvasJson, () => {
       fabricCanvas.renderAll();
+      setStatus('↻ Redo Forward Restorer: Reinstated exact edit action.');
     });
+  };
+
+  // --- ENHANCEMENT 1: EXIT / CLOSE TEXT BOX EDITING SESSION ---
+  const exitTextEditing = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      if (activeObj.isEditing) {
+        activeObj.exitEditing();
+      }
+      fabricCanvas.discardActiveObject();
+    }
+    setActiveEditingObject(null);
+    fabricCanvas.renderAll();
+    activateToolMode('select');
+    saveState(fabricCanvas);
+    setStatus('✅ Exited active text box editing session. Free to perform other tasks!');
   };
 
   const switchCursorMode = (canvas, nextMode = 'select') => {
@@ -161,7 +208,7 @@ export default function CanvasStudio() {
     activateToolMode(nextMode);
   };
 
-  // --- MOUSEUP / POINTERUP PROGRAMMATIC INITIALIZER ENGINE ---
+  // --- MOUSEUP PROGRAMMATIC INITIALIZER ENGINE ---
   const handleMouseUpInitializer = (canvas, opt) => {
     const currentMode = activeToolRef.current;
     if (currentMode === 'hand' || isPanningRef.current) return;
@@ -169,7 +216,6 @@ export default function CanvasStudio() {
     const pointer = canvas.getPointer(opt.e);
     const activeObj = canvas.getActiveObject() || opt.target;
 
-    // Capture Bounding Box Quads
     const bounds = {
       left: activeObj ? activeObj.left : pointer.x - 5,
       top: activeObj ? activeObj.top : pointer.y - 5,
@@ -181,33 +227,27 @@ export default function CanvasStudio() {
       fill: activeObj ? (activeObj.fill || textColorVal) : textColorVal,
     };
 
-    // 1. REDACT INITIALIZATION (STEP 1: Instantiate Temporary Redaction Annotation Layer)
     if (currentMode === 'redact') {
       initializeRedactionAnnotation(canvas, activeObj, bounds);
-    } 
-    // 2. FLATTEN PDF INITIALIZATION
-    else if (currentMode === 'flatten') {
+    } else if (currentMode === 'flatten') {
       executeFlattenPDF(canvas);
-    } 
-    // 3. POINT & REPLACE (HIT-TEST WORD PROCESSOR DIRECT EDITING)
-    else if (currentMode === 'pointReplace') {
+    } else if (currentMode === 'pointReplace') {
       executePointAndReplaceHitTest(canvas, activeObj, bounds, pointer);
     }
   };
 
-  // --- FEATURE 1: REDACT & OVERLAY (STEP 1: INITIALIZATION) ---
+  // --- REDACT & OVERLAY ENGINE ---
   const initializeRedactionAnnotation = (canvas, activeObj, bounds) => {
-    // Creates a temporary Redaction Annotation Layer directly above coordinates
     const redactAnnotation = new fabric.Rect({
       left: bounds.left - 2,
       top: bounds.top - 2,
       width: bounds.width,
       height: bounds.height,
-      fill: 'rgba(239, 68, 68, 0.25)', // Translucent red warning fill
+      fill: 'rgba(239, 68, 68, 0.25)',
       stroke: '#ef4444',
       strokeWidth: 2,
-      strokeDashArray: [6, 4], // Red dashed border indicating pending redaction
-      isPendingRedaction: true, // Marked for execution step
+      strokeDashArray: [6, 4],
+      isPendingRedaction: true,
     });
 
     canvas.add(redactAnnotation);
@@ -216,10 +256,9 @@ export default function CanvasStudio() {
     switchCursorMode(canvas, 'select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus('🛡️ Redaction Annotation Layer initialized! Click "Apply Redactions" to execute permanent erasure.');
+    setStatus('🛡️ Redaction Annotation initialized! Click "Apply Redactions" to execute.');
   };
 
-  // --- FEATURE 1: REDACT & OVERLAY (STEP 2: EXECUTION - APPLY REDACTIONS) ---
   const applyAllRedactions = () => {
     if (!fabricCanvas) return;
 
@@ -228,7 +267,7 @@ export default function CanvasStudio() {
     const pendingRedactObjs = objects.filter((obj) => obj.isPendingRedaction);
 
     if (pendingRedactObjs.length === 0) {
-      alert('No pending redaction annotations found! Highlight an area with the Redact tool first.');
+      alert('No pending redactions found.');
       return;
     }
 
@@ -238,21 +277,18 @@ export default function CanvasStudio() {
       const rWidth = redactBox.width;
       const rHeight = redactBox.height;
 
-      // 1. Permanently excise & delete underlying text/graphics inside coordinates
       objects.forEach((obj) => {
         if (!obj.isPendingRedaction && obj.left >= rLeft - 10 && obj.top >= rTop - 10 && obj.left <= rLeft + rWidth + 10) {
           fabricCanvas.remove(obj);
         }
       });
 
-      // 2. Burn solid colored overlay shape (blackout) permanently onto page
       const burnedOverlay = new fabric.Rect({
         left: rLeft,
         top: rTop,
         width: rWidth,
         height: rHeight,
-        fill: '#000000', // Permanent opaque blackout
-        stroke: null,
+        fill: '#000000',
         selectable: false,
         evented: false,
       });
@@ -266,19 +302,19 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
     saveState(fabricCanvas);
     setStatus(`✅ ${appliedCount} Redaction(s) permanently burned into PDF content stream!`);
-    alert(`🎉 Successfully excised underlying data and burned ${appliedCount} solid redaction overlay(s) onto the document!`);
+    alert(`🎉 Successfully excised underlying data and burned ${appliedCount} redaction overlay(s)!`);
   };
 
-  // --- FEATURE 2: FLATTEN PDF (EXECUTION - MERGE ANNOTATION LAYER TO CONTENT LAYER) ---
+  // --- FLATTEN PDF ENGINE ---
   const executeFlattenPDF = (canvas = fabricCanvas) => {
     if (!canvas) return;
 
-    if (!confirm('Flatten PDF Engine:\n\nDecompress page structure and merge all interactive annotations, text boxes, and stamps directly into the static base content layer? Once flattened, annotations become uneditable graphics.')) {
+    if (!confirm('Flatten PDF Engine:\n\nDecompress page structure and merge all interactive annotations directly into static base content layer?')) {
       switchCursorMode(canvas, 'select');
       return;
     }
 
-    setStatus('🔒 Decompressing page structure and flattening annotations...');
+    setStatus('🔒 Flattening annotation layer into read-only content layer...');
     const rasterizedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
 
     fabric.FabricImage.fromURL(rasterizedDataUrl).then((flattenedPageImg) => {
@@ -298,17 +334,17 @@ export default function CanvasStudio() {
       switchCursorMode(canvas, 'select');
       canvas.renderAll();
       saveState(canvas);
-      setStatus('🔒 Interactive annotation layer permanently baked into static read-only content layer!');
-      alert('🎉 PDF Flattened! All annotations are now baked permanently into the document graphics.');
+      setStatus('🔒 PDF Flattened into permanent static page graphics!');
+      alert('🎉 PDF Flattened! Annotations are now baked permanently into the document.');
     });
   };
 
-  // --- FEATURE 3: FIND & REPLACE WITH INTELLIGENT TEXT REFLOW & KERNING ---
+  // --- FIND & REPLACE WITH INTELLIGENT REFLOW ---
   const handleFindAndReplaceWithReflow = () => {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
 
-    const findText = prompt('Enter search term to locate in PDF content stream:', 'Entity');
+    const findText = prompt('Enter search term to locate in PDF stream:', 'Entity');
     if (!findText) return;
 
     let targetObj = null;
@@ -319,7 +355,7 @@ export default function CanvasStudio() {
     });
 
     const currentSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Parsed PDF Content Stream Match: "${currentSentence}"\n\nEnter Replacement Text String:`, currentSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    const replaceText = prompt(`Match: "${currentSentence}"\n\nEnter Replacement Text String:`, currentSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
     let replaceCount = 0;
@@ -331,27 +367,20 @@ export default function CanvasStudio() {
         const originalLeft = obj.left;
         const originalTop = obj.top;
 
-        // 1. Excise original text object
         obj.set('text', replaceText);
-        obj.initDimensions(); // Recalculate kerning and spacing
+        obj.initDimensions();
         const newWidth = obj.width * (obj.scaleX || 1);
         const deltaWidth = newWidth - oldWidth;
 
-        // 2. INTELLIGENT REFLOW ENGINE: Shift surrounding right-hand elements if text expanded
         if (deltaWidth !== 0) {
           objects.forEach((otherObj) => {
             if (otherObj !== obj && Math.abs(otherObj.top - originalTop) < 15 && otherObj.left > originalLeft) {
-              otherObj.set('left', otherObj.left + deltaWidth); // Reflow surrounding text to prevent overlap
+              otherObj.set('left', otherObj.left + deltaWidth);
             }
           });
         }
 
-        obj.set({
-          fill: textColorVal,
-          fontFamily: fontFamilyVal,
-          fontSize: fontSizeVal,
-        });
-
+        obj.set({ fill: textColorVal, fontFamily: fontFamilyVal, fontSize: fontSizeVal });
         replaceCount++;
       }
     });
@@ -359,15 +388,14 @@ export default function CanvasStudio() {
     if (replaceCount > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${replaceCount} instance(s) with intelligent text reflow & kerning!`);
+      setStatus(`Replaced ${replaceCount} instance(s) with intelligent layout reflow!`);
     } else {
-      alert(`Search term "${findText}" not found in page matrix.`);
+      alert(`Search term "${findText}" not found.`);
     }
   };
 
-  // --- FEATURE 4: POINT & REPLACE (HIT-TEST DIRECT WORD PROCESSOR EDITING) ---
+  // --- POINT & REPLACE (HIT-TEST DIRECT WORD PROCESSOR EDITING) ---
   const executePointAndReplaceHitTest = (canvas, activeObj, bounds, pointer) => {
-    // 1. Perform Hit-Test on click coordinates
     let targetTextObj = activeObj;
 
     if (!targetTextObj || (targetTextObj.type !== 'i-text' && targetTextObj.type !== 'text')) {
@@ -378,21 +406,19 @@ export default function CanvasStudio() {
       });
     }
 
-    // 2. Group characters into Virtual Active Text Box & Open Live Editing Session
     if (targetTextObj && (targetTextObj.type === 'i-text' || targetTextObj.type === 'text')) {
       canvas.setActiveObject(targetTextObj);
-      targetTextObj.enterEditing(); // Opens live word processor active text editing session
+      setActiveEditingObject(targetTextObj);
+      targetTextObj.enterEditing();
       targetTextObj.selectAll();
 
-      // Recalculate layout in real-time as user types or deletes
       targetTextObj.on('changed', () => {
         targetTextObj.initDimensions();
         canvas.renderAll();
       });
 
-      setStatus('✏️ Active Word Processor Session open! Type to edit text in real-time.');
+      setStatus('✏️ Active Word Processor Session open! Use "Exit Editing" button when finished.');
     } else {
-      // Create new live text box if empty area clicked
       const newTextBox = new fabric.IText('Type text here...', {
         left: pointer.x,
         top: pointer.y,
@@ -403,10 +429,11 @@ export default function CanvasStudio() {
 
       canvas.add(newTextBox);
       canvas.setActiveObject(newTextBox);
+      setActiveEditingObject(newTextBox);
       newTextBox.enterEditing();
       newTextBox.selectAll();
       saveState(canvas);
-      setStatus('✏️ New Word Processor Text Box created at Hit-Test coordinates!');
+      setStatus('✏️ New Word Processor Text Box created!');
     }
 
     switchCursorMode(canvas, 'select');
@@ -456,13 +483,6 @@ export default function CanvasStudio() {
     setTextAlignVal(obj.textAlign || 'left');
   };
 
-  const saveState = (targetCanvas = fabricCanvas) => {
-    if (!targetCanvas) return;
-    const json = JSON.stringify(targetCanvas.toJSON());
-    setUndoStack((prev) => [...prev, json]);
-    setRedoStack([]);
-  };
-
   const initializeEditProcess = () => {
     setIsEditMode(true);
     activateToolMode('select');
@@ -505,7 +525,7 @@ export default function CanvasStudio() {
 
   const activateRedactMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🛡️ Redact Mode Active! Highlight area on document to create Redaction Annotation on MouseUp.');
+    setStatus('🛡️ Redact Mode Active! Highlight area on document to create Redaction Annotation.');
     activateToolMode('redact');
   };
 
@@ -575,7 +595,7 @@ export default function CanvasStudio() {
         fabricCanvas.add(textObj);
       });
     } catch (e) {
-      console.warn('PDF text content stream extraction skipped:', e);
+      console.warn('PDF text extraction skipped:', e);
     }
 
     activateToolMode('hand');
@@ -837,6 +857,7 @@ export default function CanvasStudio() {
     });
     fabricCanvas.add(text);
     fabricCanvas.setActiveObject(text);
+    setActiveEditingObject(text);
     saveState();
   };
 
@@ -1196,8 +1217,15 @@ export default function CanvasStudio() {
 
             <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-            <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={14} /></button>
-            <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={14} /></button>
+            {/* ENHANCEMENT 2: THE SAFETY NET UNDO BUTTON */}
+            <button title="Undo Safety Net: Reverse last edit command & restore content/formatting" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}>
+              <RotateCcw size={14} />
+            </button>
+
+            {/* ENHANCEMENT 3: THE FORWARD RESTORER REDO BUTTON */}
+            <button title="Redo Forward Restorer: Reinstate exact action removed by Undo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}>
+              <RotateCw size={14} />
+            </button>
             
             <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -1214,7 +1242,6 @@ export default function CanvasStudio() {
               <ShieldAlert size={14} /> Redact
             </button>
 
-            {/* STEP 2 EXECUTION BUTTON: APPLY REDACTIONS */}
             {pendingRedactionsCount > 0 && (
               <button title="Step 2 Execution: Excise Data & Burn Opaque Overlay" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
                 <CheckSquare size={14} /> Apply Redactions ({pendingRedactionsCount})
@@ -1381,6 +1408,17 @@ export default function CanvasStudio() {
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
+        {/* ENHANCEMENT 1: EXIT / CLOSE TEXT BOX BUTTON IN INSPECTOR BAR */}
+        {activeEditingObject && (
+          <button 
+            onClick={exitTextEditing} 
+            title="Exit Text Box Editing Focus to perform other tasks" 
+            style={prominentBtnStyle('#ef4444')}
+          >
+            <LogOut size={12} /> Exit Text Box / Done
+          </button>
+        )}
+
         <select 
           value={fontFamilyVal} 
           onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
@@ -1479,7 +1517,37 @@ export default function CanvasStudio() {
                 </div>
               </div>
 
-              <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+              {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
+              <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+                
+                {/* FLOATING EXIT / CLOSE BUTTON OVER ACTIVE CANVAS TEXT BOX */}
+                {activeEditingObject && (
+                  <button 
+                    onClick={exitTextEditing}
+                    style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      backgroundColor: '#ef4444',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '4px 8px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      zIndex: 100,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                    }}
+                    title="Exit Text Editing Session & Deselect"
+                  >
+                    <X size={12} /> Close Text Box
+                  </button>
+                )}
+
                 <canvas ref={canvasRef} />
               </div>
 
