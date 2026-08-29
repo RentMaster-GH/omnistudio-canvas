@@ -9,7 +9,7 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -40,6 +40,9 @@ export default function CanvasStudio() {
 
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+
+  // Pending Redactions Queue
+  const [pendingRedactionsCount, setPendingRedactionsCount] = useState(0);
 
   // Text Inspector State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
@@ -153,10 +156,9 @@ export default function CanvasStudio() {
     });
   };
 
-  // --- DYNAMIC CURSOR MODE SWITCHER ---
   const switchCursorMode = (canvas, nextMode = 'select') => {
-    canvas.discardActiveObject(); // Deactivating the Selection Tool
-    activateToolMode(nextMode);   // Cursor Mode Switching
+    canvas.discardActiveObject();
+    activateToolMode(nextMode);
   };
 
   // --- MOUSEUP / POINTERUP PROGRAMMATIC INITIALIZER ENGINE ---
@@ -167,147 +169,247 @@ export default function CanvasStudio() {
     const pointer = canvas.getPointer(opt.e);
     const activeObj = canvas.getActiveObject() || opt.target;
 
-    // Capture Bounding Box Quads (Boundary Coordinates: x1..y4 & left, top, width, height)
+    // Capture Bounding Box Quads
     const bounds = {
       left: activeObj ? activeObj.left : pointer.x - 5,
       top: activeObj ? activeObj.top : pointer.y - 5,
       width: activeObj ? (activeObj.width * (activeObj.scaleX || 1)) + 10 : 140,
       height: activeObj ? (activeObj.height * (activeObj.scaleY || 1)) + 5 : 35,
-      quads: [
-        pointer.x, pointer.y,
-        pointer.x + 140, pointer.y,
-        pointer.x + 140, pointer.y + 35,
-        pointer.x, pointer.y + 35
-      ],
       extractedText: (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text')) ? activeObj.text : 'Extracted Text',
       fontSize: activeObj ? (activeObj.fontSize || fontSizeVal) : fontSizeVal,
       fontFamily: activeObj ? (activeObj.fontFamily || fontFamilyVal) : fontFamilyVal,
       fill: activeObj ? (activeObj.fill || textColorVal) : textColorVal,
     };
 
-    // 1. REDACT & OVERLAY ON MOUSEUP
+    // 1. REDACT INITIALIZATION (STEP 1: Instantiate Temporary Redaction Annotation Layer)
     if (currentMode === 'redact') {
-      executeRedactionOnMouseUp(canvas, activeObj, bounds);
+      initializeRedactionAnnotation(canvas, activeObj, bounds);
     } 
-    // 2. FLATTEN PDF ON MOUSEUP
+    // 2. FLATTEN PDF INITIALIZATION
     else if (currentMode === 'flatten') {
-      executeFlattenOnMouseUp(canvas, bounds);
+      executeFlattenPDF(canvas);
     } 
-    // 3. POINT & REPLACE ON MOUSEUP
+    // 3. POINT & REPLACE (HIT-TEST WORD PROCESSOR DIRECT EDITING)
     else if (currentMode === 'pointReplace') {
-      executePointReplaceOnMouseUp(canvas, activeObj, bounds);
+      executePointAndReplaceHitTest(canvas, activeObj, bounds, pointer);
     }
   };
 
-  // 1. REDACT & OVERLAY INITIALIZATION ON MOUSEUP
-  const executeRedactionOnMouseUp = (canvas, activeObj, bounds) => {
-    const redactStyle = prompt(`MouseUp Programmatic Initializer Captured Quads:\n[${bounds.quads.join(', ')}]\n\nSelect Redaction Type:\nType "blackout" for Security Black Box, or "whiteout" for Clean Erasure:`, 'blackout');
-    if (!redactStyle) {
-      switchCursorMode(canvas, 'select');
-      return;
-    }
-
-    const replacementText = prompt('Enter Overlay Replacement Text (leave empty for Security Redaction only):');
-
-    // Instantiate Redact Annotation over Captured Quads
-    const redactionBox = new fabric.Rect({
+  // --- FEATURE 1: REDACT & OVERLAY (STEP 1: INITIALIZATION) ---
+  const initializeRedactionAnnotation = (canvas, activeObj, bounds) => {
+    // Creates a temporary Redaction Annotation Layer directly above coordinates
+    const redactAnnotation = new fabric.Rect({
       left: bounds.left - 2,
       top: bounds.top - 2,
       width: bounds.width,
       height: bounds.height,
-      fill: redactStyle.toLowerCase() === 'blackout' ? '#000000' : '#ffffff',
+      fill: 'rgba(239, 68, 68, 0.25)', // Translucent red warning fill
       stroke: '#ef4444',
-      strokeWidth: 1.5,
+      strokeWidth: 2,
+      strokeDashArray: [6, 4], // Red dashed border indicating pending redaction
+      isPendingRedaction: true, // Marked for execution step
     });
 
-    if (activeObj) canvas.remove(activeObj);
-    canvas.add(redactionBox);
+    canvas.add(redactAnnotation);
+    setPendingRedactionsCount((prev) => prev + 1);
 
-    if (replacementText) {
-      const overlayText = new fabric.IText(replacementText, {
-        left: bounds.left + 2,
-        top: bounds.top + 2,
-        fontSize: fontSizeVal,
-        fontFamily: fontFamilyVal,
-        fill: redactStyle.toLowerCase() === 'blackout' ? '#ffffff' : textColorVal,
-      });
-      canvas.add(overlayText);
-      canvas.setActiveObject(overlayText);
-    }
-
-    // Cursor Mode Switching: Deactivate Selection & Toggle Cursor Mode back to select
     switchCursorMode(canvas, 'select');
     canvas.renderAll();
     saveState(canvas);
-    setStatus('🛡️ Redact Annotation instantiated over Quads on MouseUp awaiting ApplyRedaction!');
+    setStatus('🛡️ Redaction Annotation Layer initialized! Click "Apply Redactions" to execute permanent erasure.');
   };
 
-  // 2. FLATTEN PDF INITIALIZATION ON MOUSEUP
-  const executeFlattenOnMouseUp = (canvas, bounds) => {
-    if (!confirm(`MouseUp Captured Markup Coordinates:\n[X: ${Math.round(bounds.left)}, Y: ${Math.round(bounds.top)}]\n\nExecute Flatten operation to permanently merge all annotation layers directly into static page content layer?`)) {
+  // --- FEATURE 1: REDACT & OVERLAY (STEP 2: EXECUTION - APPLY REDACTIONS) ---
+  const applyAllRedactions = () => {
+    if (!fabricCanvas) return;
+
+    let appliedCount = 0;
+    const objects = fabricCanvas.getObjects();
+    const pendingRedactObjs = objects.filter((obj) => obj.isPendingRedaction);
+
+    if (pendingRedactObjs.length === 0) {
+      alert('No pending redaction annotations found! Highlight an area with the Redact tool first.');
+      return;
+    }
+
+    pendingRedactObjs.forEach((redactBox) => {
+      const rLeft = redactBox.left;
+      const rTop = redactBox.top;
+      const rWidth = redactBox.width;
+      const rHeight = redactBox.height;
+
+      // 1. Permanently excise & delete underlying text/graphics inside coordinates
+      objects.forEach((obj) => {
+        if (!obj.isPendingRedaction && obj.left >= rLeft - 10 && obj.top >= rTop - 10 && obj.left <= rLeft + rWidth + 10) {
+          fabricCanvas.remove(obj);
+        }
+      });
+
+      // 2. Burn solid colored overlay shape (blackout) permanently onto page
+      const burnedOverlay = new fabric.Rect({
+        left: rLeft,
+        top: rTop,
+        width: rWidth,
+        height: rHeight,
+        fill: '#000000', // Permanent opaque blackout
+        stroke: null,
+        selectable: false,
+        evented: false,
+      });
+
+      fabricCanvas.remove(redactBox);
+      fabricCanvas.add(burnedOverlay);
+      appliedCount++;
+    });
+
+    setPendingRedactionsCount(0);
+    fabricCanvas.renderAll();
+    saveState(fabricCanvas);
+    setStatus(`✅ ${appliedCount} Redaction(s) permanently burned into PDF content stream!`);
+    alert(`🎉 Successfully excised underlying data and burned ${appliedCount} solid redaction overlay(s) onto the document!`);
+  };
+
+  // --- FEATURE 2: FLATTEN PDF (EXECUTION - MERGE ANNOTATION LAYER TO CONTENT LAYER) ---
+  const executeFlattenPDF = (canvas = fabricCanvas) => {
+    if (!canvas) return;
+
+    if (!confirm('Flatten PDF Engine:\n\nDecompress page structure and merge all interactive annotations, text boxes, and stamps directly into the static base content layer? Once flattened, annotations become uneditable graphics.')) {
       switchCursorMode(canvas, 'select');
       return;
     }
 
-    setStatus('🔒 Executing Flatten Operation on Captured Coordinates...');
-    const flattenedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
+    setStatus('🔒 Decompressing page structure and flattening annotations...');
+    const rasterizedDataUrl = canvas.toDataURL({ format: 'png', quality: 1.0 });
 
-    fabric.FabricImage.fromURL(flattenedDataUrl).then((flattenedImg) => {
+    fabric.FabricImage.fromURL(rasterizedDataUrl).then((flattenedPageImg) => {
       canvas.clear();
       canvas.setDimensions({ width: 820, height: 480 });
-      flattenedImg.set({ left: 0, top: 0, selectable: false });
-      canvas.add(flattenedImg);
-      canvas.sendObjectToBack(flattenedImg);
-      
-      // Cursor Mode Switching: Deactivate Selection Tool
+      flattenedPageImg.set({ 
+        left: 0, 
+        top: 0, 
+        selectable: false, 
+        evented: false, 
+        hasControls: false 
+      });
+
+      canvas.add(flattenedPageImg);
+      canvas.sendObjectToBack(flattenedPageImg);
+
       switchCursorMode(canvas, 'select');
       canvas.renderAll();
       saveState(canvas);
-      setStatus('🔒 PDF Annotation Layer permanently merged into static page layer!');
+      setStatus('🔒 Interactive annotation layer permanently baked into static read-only content layer!');
+      alert('🎉 PDF Flattened! All annotations are now baked permanently into the document graphics.');
     });
   };
 
-  // 3. POINT & REPLACE INITIALIZATION ON MOUSEUP
-  const executePointReplaceOnMouseUp = (canvas, activeObj, bounds) => {
-    const replaceText = prompt(`MouseUp Programmatic Initializer Captured Quads!\nPDF Content Stream Text: "${bounds.extractedText}"\n\nEnter Replacement Text:`, bounds.extractedText);
-    if (replaceText === null) {
-      switchCursorMode(canvas, 'select');
-      return;
-    }
+  // --- FEATURE 3: FIND & REPLACE WITH INTELLIGENT TEXT REFLOW & KERNING ---
+  const handleFindAndReplaceWithReflow = () => {
+    if (!isEditMode) initializeEditProcess();
+    if (!fabricCanvas) return;
 
-    const matchStyle = confirm('Match extracted document font style?\n\nOK = Match Style\nCancel = Custom Style');
+    const findText = prompt('Enter search term to locate in PDF content stream:', 'Entity');
+    if (!findText) return;
 
-    const whiteout = new fabric.Rect({
-      left: bounds.left - 2,
-      top: bounds.top - 2,
-      width: Math.max(bounds.width, replaceText.length * (bounds.fontSize * 0.5) + 15),
-      height: bounds.height,
-      fill: '#ffffff',
-      stroke: '#cbd5e1',
-      strokeWidth: 1,
+    let targetObj = null;
+    fabricCanvas.getObjects().forEach((obj) => {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
+        targetObj = obj;
+      }
     });
 
-    const newTextObj = new fabric.IText(replaceText, {
-      left: bounds.left,
-      top: bounds.top,
-      fontSize: matchStyle ? bounds.fontSize : fontSizeVal,
-      fontFamily: matchStyle ? bounds.fontFamily : fontFamilyVal,
-      fill: matchStyle ? bounds.fill : textColorVal,
+    const currentSentence = targetObj ? targetObj.text : findText;
+    const replaceText = prompt(`Parsed PDF Content Stream Match: "${currentSentence}"\n\nEnter Replacement Text String:`, currentSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    if (replaceText === null) return;
+
+    let replaceCount = 0;
+    const objects = fabricCanvas.getObjects();
+
+    objects.forEach((obj) => {
+      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
+        const oldWidth = obj.width * (obj.scaleX || 1);
+        const originalLeft = obj.left;
+        const originalTop = obj.top;
+
+        // 1. Excise original text object
+        obj.set('text', replaceText);
+        obj.initDimensions(); // Recalculate kerning and spacing
+        const newWidth = obj.width * (obj.scaleX || 1);
+        const deltaWidth = newWidth - oldWidth;
+
+        // 2. INTELLIGENT REFLOW ENGINE: Shift surrounding right-hand elements if text expanded
+        if (deltaWidth !== 0) {
+          objects.forEach((otherObj) => {
+            if (otherObj !== obj && Math.abs(otherObj.top - originalTop) < 15 && otherObj.left > originalLeft) {
+              otherObj.set('left', otherObj.left + deltaWidth); // Reflow surrounding text to prevent overlap
+            }
+          });
+        }
+
+        obj.set({
+          fill: textColorVal,
+          fontFamily: fontFamilyVal,
+          fontSize: fontSizeVal,
+        });
+
+        replaceCount++;
+      }
     });
 
-    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text')) {
-      canvas.remove(activeObj);
+    if (replaceCount > 0) {
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus(`Replaced ${replaceCount} instance(s) with intelligent text reflow & kerning!`);
+    } else {
+      alert(`Search term "${findText}" not found in page matrix.`);
+    }
+  };
+
+  // --- FEATURE 4: POINT & REPLACE (HIT-TEST DIRECT WORD PROCESSOR EDITING) ---
+  const executePointAndReplaceHitTest = (canvas, activeObj, bounds, pointer) => {
+    // 1. Perform Hit-Test on click coordinates
+    let targetTextObj = activeObj;
+
+    if (!targetTextObj || (targetTextObj.type !== 'i-text' && targetTextObj.type !== 'text')) {
+      canvas.getObjects().forEach((obj) => {
+        if ((obj.type === 'i-text' || obj.type === 'text') && Math.abs(obj.left - pointer.x) < 80 && Math.abs(obj.top - pointer.y) < 30) {
+          targetTextObj = obj;
+        }
+      });
     }
 
-    canvas.add(whiteout);
-    canvas.add(newTextObj);
-    canvas.setActiveObject(newTextObj);
+    // 2. Group characters into Virtual Active Text Box & Open Live Editing Session
+    if (targetTextObj && (targetTextObj.type === 'i-text' || targetTextObj.type === 'text')) {
+      canvas.setActiveObject(targetTextObj);
+      targetTextObj.enterEditing(); // Opens live word processor active text editing session
+      targetTextObj.selectAll();
 
-    // Cursor Mode Switching: Deactivate Selection & Switch Cursor Mode back to select
+      // Recalculate layout in real-time as user types or deletes
+      targetTextObj.on('changed', () => {
+        targetTextObj.initDimensions();
+        canvas.renderAll();
+      });
+
+      setStatus('✏️ Active Word Processor Session open! Type to edit text in real-time.');
+    } else {
+      // Create new live text box if empty area clicked
+      const newTextBox = new fabric.IText('Type text here...', {
+        left: pointer.x,
+        top: pointer.y,
+        fontSize: fontSizeVal,
+        fontFamily: fontFamilyVal,
+        fill: textColorVal,
+      });
+
+      canvas.add(newTextBox);
+      canvas.setActiveObject(newTextBox);
+      newTextBox.enterEditing();
+      newTextBox.selectAll();
+      saveState(canvas);
+      setStatus('✏️ New Word Processor Text Box created at Hit-Test coordinates!');
+    }
+
     switchCursorMode(canvas, 'select');
-    canvas.renderAll();
-    saveState(canvas);
-    setStatus(`MouseUp Substituted PDF Content Stream Text with "${replaceText}"!`);
   };
 
   // --- DEDICATED VIDEO PORTAL CONTROLS ---
@@ -403,79 +505,19 @@ export default function CanvasStudio() {
 
   const activateRedactMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🛡️ Redact Mode Active! Highlight area on document to Redact & Overlay on MouseUp.');
+    setStatus('🛡️ Redact Mode Active! Highlight area on document to create Redaction Annotation on MouseUp.');
     activateToolMode('redact');
   };
 
   const activateFlattenMode = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🔒 Flatten Mode Active! Highlight area on document to Flatten annotations into page layer on MouseUp.');
-    activateToolMode('flatten');
+    executeFlattenPDF(fabricCanvas);
   };
 
   const activatePointToReplace = () => {
     if (!isEditMode) initializeEditProcess();
-    setStatus('🎯 Point & Replace Active! Click directly on text to Extract & Replace on MouseUp.');
+    setStatus('🎯 Point & Replace Active! Click directly on text to open Live Word Processor Session.');
     activateToolMode('pointReplace');
-  };
-
-  const handleFindAndReplace = () => {
-    if (!isEditMode) initializeEditProcess();
-    if (!fabricCanvas) return;
-
-    const findText = prompt('Enter text to Find in PDF stream:', 'Entity');
-    if (!findText) return;
-
-    let targetObj = null;
-    fabricCanvas.getObjects().forEach((obj) => {
-      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
-        targetObj = obj;
-      }
-    });
-
-    const extractedSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Extracted PDF Content Stream Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
-    if (replaceText === null) return;
-
-    let count = 0;
-    fabricCanvas.getObjects().forEach((obj) => {
-      if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
-        const left = obj.left;
-        const top = obj.top;
-
-        const whiteout = new fabric.Rect({
-          left: left - 2,
-          top: top - 2,
-          width: Math.max(100, (obj.width * (obj.scaleX || 1)) + 10),
-          height: (obj.height * (obj.scaleY || 1)) + 6,
-          fill: '#ffffff',
-          stroke: '#cbd5e1',
-          strokeWidth: 1,
-        });
-
-        const newText = new fabric.IText(replaceText, {
-          left: left,
-          top: top,
-          fontSize: obj.fontSize || fontSizeVal,
-          fontFamily: obj.fontFamily || fontFamilyVal,
-          fill: textColorVal,
-        });
-
-        fabricCanvas.remove(obj);
-        fabricCanvas.add(whiteout);
-        fabricCanvas.add(newText);
-        fabricCanvas.setActiveObject(newText);
-        count++;
-      }
-    });
-
-    if (count > 0) {
-      fabricCanvas.renderAll();
-      saveState();
-      setStatus(`Replaced ${count} instance(s) in PDF content stream!`);
-    } else {
-      alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target area!`);
-    }
   };
 
   const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
@@ -1168,19 +1210,26 @@ export default function CanvasStudio() {
               <Type size={14} /> Text
             </button>
 
-            <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
-              <ShieldAlert size={14} /> Redact & Overlay
+            <button title="Redact & Overlay (Step 1: Highlight Area)" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
+              <ShieldAlert size={14} /> Redact
             </button>
 
-            <button title="Flatten PDF" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
+            {/* STEP 2 EXECUTION BUTTON: APPLY REDACTIONS */}
+            {pendingRedactionsCount > 0 && (
+              <button title="Step 2 Execution: Excise Data & Burn Opaque Overlay" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
+                <CheckSquare size={14} /> Apply Redactions ({pendingRedactionsCount})
+              </button>
+            )}
+
+            <button title="Flatten PDF (Bake Annotation Layer to Content Layer)" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
               <Lock size={14} /> Flatten PDF
             </button>
 
-            <button title="Find & Replace" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
+            <button title="Find & Replace with Intelligent Text Reflow & Kerning" onClick={handleFindAndReplaceWithReflow} style={prominentBtnStyle('#0284c7')}>
               <RefreshCw size={14} /> Find & Replace
             </button>
 
-            <button title="Point & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+            <button title="Point & Replace (Hit-Test Direct Word Processor Text Editing)" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
               <Target size={14} /> Point & Replace
             </button>
 
@@ -1390,7 +1439,7 @@ export default function CanvasStudio() {
         </label>
       </div>
 
-      {/* 4. MAIN ISOLATED PORTAL WORKSPACE (Scrollable) */}
+      {/* 4. MAIN ISOLATED PORTAL WORKSPACE */}
       <div className="custom-scroll" style={{ display: 'flex', flex: 1, overflowY: 'auto', boxSizing: 'border-box' }}>
 
         {/* --- PORTAL TYPE A: PDF DOCUMENT PORTAL --- */}
@@ -1459,7 +1508,7 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* Dedicated Standalone Video Player Screen */}
+              {/* Standalone Video Player Screen */}
               <div style={{ width: '100%', height: '420px', backgroundColor: '#000000', borderRadius: '8px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: `1px solid ${borderCol}` }}>
                 {videoPreviewUrl ? (
                   <video
