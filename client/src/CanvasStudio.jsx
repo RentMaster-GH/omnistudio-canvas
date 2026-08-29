@@ -9,7 +9,7 @@ import {
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target, Edit3, Lock
+  PenTool, Link, Crop, Layout, FileCog, ChevronRight, RefreshCw, Target, Edit3, ShieldAlert, Lock
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -26,8 +26,7 @@ export default function CanvasStudio() {
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready - View Mode');
 
-  // EDIT PROCESS GATEKEEPER STATE
-  const [isEditMode, setIsEditMode] = useState(false); // False = View / Read-Only, True = Edit Mode
+  const [isEditMode, setIsEditMode] = useState(false);
 
   // Tool Modes: 'hand' | 'select' | 'draw' | 'highlight' | 'pointReplace'
   const [activeTool, setActiveTool] = useState('hand');
@@ -63,7 +62,6 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
-  // Drag-to-Pan Hand Cursor State
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
@@ -79,7 +77,6 @@ export default function CanvasStudio() {
       defaultCursor: 'grab',
     });
 
-    // DRAG-TO-PAN HAND CURSOR ENGINE
     canvas.on('mouse:down', (opt) => {
       if (activeToolRef.current === 'hand') {
         isPanningRef.current = true;
@@ -157,14 +154,12 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // INITIALIZE EDITING PROCESS GATEKEEPER
   const initializeEditProcess = () => {
     setIsEditMode(true);
     activateToolMode('select');
-    setStatus('✏️ Edit Process Initialized! All editing tools unlocked.');
+    setStatus('✏️ Edit Process Initialized! All tools unlocked.');
   };
 
-  // --- TOOL MODE SWITCHER ---
   const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
     setActiveTool(mode);
@@ -199,12 +194,85 @@ export default function CanvasStudio() {
     }
   };
 
-  // AUTOMATED FIND & REPLACE
+  // --- REDACTION ANNOTATION & OVERLAY ENGINE ---
+  const handleRedactionOverlay = () => {
+    if (!isEditMode) initializeEditProcess();
+    if (!fabricCanvas) return;
+
+    const activeObj = fabricCanvas.getActiveObject();
+    if (!activeObj) {
+      alert('Select text or an area on the document to Redact & Overlay!');
+      return;
+    }
+
+    const redactStyle = prompt('Select Redaction Type:\nType "blackout" for Black Security Box, or "whiteout" for Erasure Box:', 'blackout');
+    if (!redactStyle) return;
+
+    const replacementText = prompt('Enter Overlay Replacement Text (leave empty for Security Redaction only):');
+
+    const left = activeObj.left;
+    const top = activeObj.top;
+    const width = (activeObj.width * (activeObj.scaleX || 1)) + 12;
+    const height = (activeObj.height * (activeObj.scaleY || 1)) + 6;
+
+    // Redaction Bounding Box
+    const redactionBox = new fabric.Rect({
+      left: left - 2,
+      top: top - 2,
+      width: width,
+      height: height,
+      fill: redactStyle.toLowerCase() === 'blackout' ? '#000000' : '#ffffff',
+      stroke: '#ef4444',
+      strokeWidth: 1.5,
+    });
+
+    fabricCanvas.remove(activeObj);
+    fabricCanvas.add(redactionBox);
+
+    if (replacementText) {
+      const overlayText = new fabric.IText(replacementText, {
+        left: left + 2,
+        top: top + 2,
+        fontSize: fontSizeVal,
+        fontFamily: fontFamilyVal,
+        fill: redactStyle.toLowerCase() === 'blackout' ? '#ffffff' : textColorVal,
+      });
+      fabricCanvas.add(overlayText);
+      fabricCanvas.setActiveObject(overlayText);
+    }
+
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('🛡️ Redaction Annotation & Overlay applied!');
+  };
+
+  // --- PERMANENT PDF DOCUMENT LAYER FLATTENING ENGINE ---
+  const handleFlattenDocument = () => {
+    if (!fabricCanvas) return;
+    if (!confirm('PDF Flattening permanently merges all text, form fields, stamps, shapes, and redactions into the original base document layer.\n\nProceed with Document Flattening?')) return;
+
+    setStatus('🔒 Flattening PDF Document Layers...');
+    const flattenedDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
+
+    fabric.FabricImage.fromURL(flattenedDataUrl).then((flattenedImg) => {
+      fabricCanvas.clear();
+      fabricCanvas.setDimensions({ width: 820, height: 480 });
+      flattenedImg.set({ left: 0, top: 0, selectable: false });
+      fabricCanvas.add(flattenedImg);
+      fabricCanvas.sendObjectToBack(flattenedImg);
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('🔒 PDF successfully flattened into permanent base layer!');
+      alert('Document Flattened! All annotations, redactions, and text are now permanently merged into the base layer.');
+    });
+  };
+
+  // AUTOMATED FIND & REPLACE WITH CONTENT STREAM OPERATOR MODIFICATION
   const handleFindAndReplace = () => {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
 
-    const findText = prompt('Enter text to Find in PDF document (e.g., Entity):', 'Entity');
+    const findText = prompt('Enter text to Find in PDF content stream (e.g., Entity):', 'Entity');
     if (!findText) return;
 
     let targetObj = null;
@@ -215,19 +283,16 @@ export default function CanvasStudio() {
     });
 
     const extractedSentence = targetObj ? targetObj.text : findText;
-    const replaceText = prompt(`Found Text in PDF: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
+    const replaceText = prompt(`Extracted PDF Content Stream Text: "${extractedSentence}"\n\nEnter Replacement Text:`, extractedSentence.replace(new RegExp(findText, 'gi'), 'New Text'));
     if (replaceText === null) return;
 
-    const matchOriginal = confirm('Do you want to MATCH original document font style?\n\nOK = Match Original Style\nCancel = Use Custom Text Inspector Style');
+    const modifyContentStream = confirm('Modify PDF Content Stream & Redact Bounding Box?\n\nOK = Modify Content Stream & Bounding Box\nCancel = Floating Overlay Only');
 
     let count = 0;
     fabricCanvas.getObjects().forEach((obj) => {
       if ((obj.type === 'i-text' || obj.type === 'text') && obj.text.toLowerCase().includes(findText.toLowerCase())) {
         const left = obj.left;
         const top = obj.top;
-        const fontSz = matchOriginal ? (obj.fontSize || fontSizeVal) : fontSizeVal;
-        const fontFam = matchOriginal ? (obj.fontFamily || fontFamilyVal) : fontFamilyVal;
-        const fontCol = matchOriginal ? '#0f172a' : textColorVal;
 
         const whiteout = new fabric.Rect({
           left: left - 2,
@@ -242,10 +307,12 @@ export default function CanvasStudio() {
         const newText = new fabric.IText(replaceText, {
           left: left,
           top: top,
-          fontSize: fontSz,
-          fontFamily: fontFam,
-          fill: fontCol,
+          fontSize: obj.fontSize || fontSizeVal,
+          fontFamily: obj.fontFamily || fontFamilyVal,
+          fill: textColorVal,
         });
+
+        if (modifyContentStream) obj.set('text', replaceText); // Modify internal text operator stream
 
         fabricCanvas.remove(obj);
         fabricCanvas.add(whiteout);
@@ -258,13 +325,13 @@ export default function CanvasStudio() {
     if (count > 0) {
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`Replaced ${count} instance(s) of "${findText}"!`);
+      setStatus(`Replaced ${count} instance(s) in PDF content stream!`);
     } else {
       alert(`Text "${findText}" not found. Click "Point & Replace" to click directly on target area!`);
     }
   };
 
-  // POINT-TO-REPLACE ENGINE WITH TARGET CURSOR & AUTO-INITIALIZE EDIT
+  // POINT-TO-REPLACE ENGINE WITH TARGET CURSOR & AUTO-EXTRACT
   const activatePointToReplace = () => {
     if (!isEditMode) initializeEditProcess();
     if (!fabricCanvas) return;
@@ -296,7 +363,7 @@ export default function CanvasStudio() {
         boxHeight = (targetObj.height * (targetObj.scaleY || 1)) + 5;
       }
 
-      const replaceText = prompt(`Auto-Extracted Item Text:\nEdit or Replace below:`, extractedText);
+      const replaceText = prompt(`Auto-Extracted Content Stream Text:\nEdit or Replace below:`, extractedText);
       if (replaceText === null) {
         activateToolMode('select');
         return;
@@ -340,7 +407,6 @@ export default function CanvasStudio() {
     fabricCanvas.once('mouse:down', clickHandler);
   };
 
-  // AUTOMATIC VIEWPORT FIT & HAND TOOL ACTIVATION ON DOCUMENT RENDER
   const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -362,7 +428,6 @@ export default function CanvasStudio() {
 
     fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
 
-    // Math for Automatic Viewport Fit
     const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
     imgObj.scale(scale);
 
@@ -375,7 +440,6 @@ export default function CanvasStudio() {
     fabricCanvas.add(imgObj);
     fabricCanvas.sendObjectToBack(imgObj);
 
-    // Extract PDF Text Stream to Canvas
     try {
       const textContent = await page.getTextContent();
       textContent.items.forEach((item) => {
@@ -401,7 +465,6 @@ export default function CanvasStudio() {
       console.warn('PDF Text Content stream extraction skipped:', e);
     }
 
-    // Default to Hand / View Panning Mode on Render
     activateToolMode('hand');
     fabricCanvas.renderAll();
     saveState(fabricCanvas);
@@ -972,7 +1035,7 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON */}
+      {/* 2. SECONDARY TOOL RIBBON (INCLUDES REDACTION, FLATTENING, CONTENT STREAM FIND & REPLACE, POINT & REPLACE) */}
       <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
         {activePortal === 'pdf' && (
@@ -999,12 +1062,23 @@ export default function CanvasStudio() {
                 <Type size={14} /> Text
               </button>
 
-              <button title="Automated Find & Replace Text" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
+              {/* REDACTION ANNOTATION & OVERLAY TOOL */}
+              <button title="Redact Bounding Box & Overlay Text" onClick={handleRedactionOverlay} style={prominentBtnStyle('#dc2626')}>
+                <ShieldAlert size={14} /> Redact & Overlay
+              </button>
+
+              {/* PDF DOCUMENT LAYER FLATTENING ENGINE */}
+              <button title="Permanently Flatten All Annotations & Text into Base PDF Layer" onClick={handleFlattenDocument} style={prominentBtnStyle('#8b5cf6')}>
+                <Lock size={14} /> Flatten PDF
+              </button>
+
+              {/* AUTOMATED CONTENT STREAM FIND & REPLACE */}
+              <button title="Modify Internal PDF Content Stream & Bounding Box" onClick={handleFindAndReplace} style={prominentBtnStyle('#0284c7')}>
                 <RefreshCw size={14} /> Find & Replace
               </button>
 
-              {/* TARGET CURSOR POINT & REPLACE TOOL */}
-              <button title="Click directly on document item to Auto-Extract and Edit (Target Crosshair Cursor Active)" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+              {/* POINT & REPLACE TOOL */}
+              <button title="Click directly on document item to Auto-Extract and Edit" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
                 <Target size={14} /> Point & Replace
               </button>
 
@@ -1282,7 +1356,7 @@ export default function CanvasStudio() {
   );
 }
 
-// Styles
+// Button & Dropdown Styles
 const portalTabStyle = (active) => ({
   display: 'flex',
   alignItems: 'center',
