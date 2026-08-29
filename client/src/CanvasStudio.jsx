@@ -4,9 +4,10 @@ import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
-  Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
-  ChevronRight, Eye, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
-  Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown
+  Music, Play, Captions, Save, Upload, Layers, Sun, Moon, Eraser,
+  ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
+  Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
+  AlignLeft, AlignCenter, AlignRight, AlignVerticalTop, AlignVerticalCenter, AlignVerticalBottom
 } from 'lucide-react';
 
 // Configure PDF.js worker
@@ -19,17 +20,27 @@ const API_BASE = window.location.hostname === 'localhost'
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  const [activePortal, setActivePortal] = useState('pdf'); // 'pdf' | 'canvas' | 'image' | 'video' | 'transcribe'
+  const [activePortal, setActivePortal] = useState('pdf');
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready');
 
-  // Tool Modes: 'select' | 'hand' | 'draw' | 'highlight'
   const [activeTool, setActiveTool] = useState('select');
-  const [activeDropdown, setActiveDropdown] = useState(null); // 'eraser' | 'image' | 'shapes'
+  const [activeDropdown, setActiveDropdown] = useState(null);
 
   // System State Management (Undo / Redo Stack)
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+
+  // Comprehensive Text Inspector State
+  const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
+  const [fontSizeVal, setFontSizeVal] = useState(24);
+  const [textColorVal, setTextColorVal] = useState('#0f172a');
+  const [textBgColorVal, setTextBgColorVal] = useState('#ffffff');
+  const [textOpacityVal, setTextOpacityVal] = useState(1.0);
+  const [isBoldVal, setIsBoldVal] = useState(false);
+  const [isItalicVal, setIsItalicVal] = useState(false);
+  const [isUnderlineVal, setIsUnderlineVal] = useState(false);
+  const [textAlignVal, setTextAlignVal] = useState('left');
 
   // PDF Preview & Thumbnail State
   const [pdfDoc, setPdfDoc] = useState(null);
@@ -44,19 +55,36 @@ export default function CanvasStudio() {
   const [imgBrightness, setImgBrightness] = useState(1);
   const [imgBlur, setImgBlur] = useState(0);
 
-  // Initialize Canvas
+  // Initialize Canvas & Selection Event Listeners
   useEffect(() => {
     const canvas = new fabric.Canvas(canvasRef.current, {
-      width: 900,
-      height: 650,
+      width: 820,
+      height: 480,
       backgroundColor: '#ffffff',
     });
+
+    // Auto-update Inspector controls when clicking existing text on canvas
+    canvas.on('selection:created', (e) => updateInspectorFromSelection(e.selected[0]));
+    canvas.on('selection:updated', (e) => updateInspectorFromSelection(e.selected[0]));
 
     setFabricCanvas(canvas);
     saveState(canvas);
 
     return () => canvas.dispose();
   }, []);
+
+  const updateInspectorFromSelection = (obj) => {
+    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text')) return;
+    setFontFamilyVal(obj.fontFamily || 'Arial');
+    setFontSizeVal(obj.fontSize || 24);
+    setTextColorVal(obj.fill || '#0f172a');
+    setTextBgColorVal(obj.textBackgroundColor || '#ffffff');
+    setTextOpacityVal(obj.opacity !== undefined ? obj.opacity : 1.0);
+    setIsBoldVal(obj.fontWeight === 'bold');
+    setIsItalicVal(obj.fontStyle === 'italic');
+    setIsUnderlineVal(!!obj.underline);
+    setTextAlignVal(obj.textAlign || 'left');
+  };
 
   // --- UNDO / REDO ENGINE ---
   const saveState = (targetCanvas = fabricCanvas) => {
@@ -87,7 +115,38 @@ export default function CanvasStudio() {
     fabricCanvas.loadFromJSON(nextState, () => fabricCanvas.renderAll());
   };
 
-  // --- TOOL MODE SWITCHER ---
+  // --- TEXT INSPECTOR PROPERTY MUTATION ENGINE ---
+  const updateActiveTextProp = (prop, value) => {
+    if (!fabricCanvas) return;
+    const activeObject = fabricCanvas.getActiveObject();
+    if (activeObject && (activeObject.type === 'i-text' || activeObject.type === 'text')) {
+      activeObject.set(prop, value);
+      fabricCanvas.renderAll();
+      saveState();
+    }
+  };
+
+  // Vertical Text Alignment
+  const alignTextVertical = (pos) => {
+    if (!fabricCanvas) return;
+    const activeObject = fabricCanvas.getActiveObject();
+    if (!activeObject) return;
+
+    const canvasHeight = fabricCanvas.height;
+    const objHeight = activeObject.height * (activeObject.scaleY || 1);
+
+    if (pos === 'top') {
+      activeObject.set('top', 15);
+    } else if (pos === 'middle') {
+      activeObject.set('top', (canvasHeight - objHeight) / 2);
+    } else if (pos === 'bottom') {
+      activeObject.set('top', canvasHeight - objHeight - 15);
+    }
+
+    fabricCanvas.renderAll();
+    saveState();
+  };
+
   const activateToolMode = (mode) => {
     if (!fabricCanvas) return;
     setActiveTool(mode);
@@ -116,7 +175,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // --- PDF DOCUMENT NAVIGATOR & THUMBNAIL ENGINE ---
   const handlePdfDocumentUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -170,12 +228,12 @@ export default function CanvasStudio() {
     const imgData = tempCanvas.toDataURL('image/png');
     const imgObj = await fabric.FabricImage.fromURL(imgData);
 
-    const canvasWidth = 900;
-    const canvasHeight = 650;
+    const canvasWidth = 820;
+    const canvasHeight = 480;
 
     fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
 
-    const scale = Math.min((canvasWidth - 60) / imgObj.width, (canvasHeight - 60) / imgObj.height);
+    const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
     imgObj.scale(scale);
 
     const left = (canvasWidth - imgObj.width * scale) / 2;
@@ -198,11 +256,22 @@ export default function CanvasStudio() {
     await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
-  // --- ANNOTATION TOOLS ENGINE ---
   const addText = () => {
     if (!fabricCanvas) return;
     activateToolMode('select');
-    const text = new fabric.IText('Edit text here', { left: 150, top: 150, fontSize: 22, fill: '#0f172a' });
+    const text = new fabric.IText('Edit text here', { 
+      left: 150, 
+      top: 150, 
+      fontSize: fontSizeVal, 
+      fontFamily: fontFamilyVal,
+      fill: textColorVal,
+      textBackgroundColor: textBgColorVal === '#ffffff' ? 'transparent' : textBgColorVal,
+      opacity: textOpacityVal,
+      fontWeight: isBoldVal ? 'bold' : 'normal',
+      fontStyle: isItalicVal ? 'italic' : 'normal',
+      underline: isUnderlineVal,
+      textAlign: textAlignVal,
+    });
     fabricCanvas.add(text);
     fabricCanvas.setActiveObject(text);
     saveState();
@@ -233,7 +302,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // Stamp Matrix
   const addStamp = (type) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -253,7 +321,6 @@ export default function CanvasStudio() {
     saveState();
   };
 
-  // Shape Suite
   const addShape = (shapeType) => {
     if (!fabricCanvas) return;
     activateToolMode('select');
@@ -277,7 +344,6 @@ export default function CanvasStudio() {
     }
   };
 
-  // Zoom Engine
   const handleZoom = (newZoom) => {
     if (!fabricCanvas) return;
     const clampedZoom = Math.max(0.2, Math.min(3.0, newZoom));
@@ -294,7 +360,6 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
   };
 
-  // --- SAVE & LOAD PROJECT ---
   const saveProjectJson = () => {
     if (!fabricCanvas) return;
     const jsonStr = JSON.stringify(fabricCanvas.toJSON());
@@ -465,162 +530,161 @@ export default function CanvasStudio() {
     }
   };
 
-  // Theme Styles
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
   const bgBar = darkMode ? '#1e293b' : '#ffffff';
   const textColor = darkMode ? '#f8fafc' : '#0f172a';
   const borderCol = darkMode ? '#334155' : '#cbd5e1';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
-      {/* TOP PORTAL SWITCHER BAR */}
-      <div style={{ height: '42px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 15px', gap: '8px', zIndex: 40 }}>
-        <span style={{ fontWeight: 'bold', fontSize: '15px', color: '#fff', marginRight: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={18} /> OmniStudio</span>
+      {/* 1. TOP PORTAL SWITCHER BAR */}
+      <div style={{ height: '36px', minHeight: '36px', backgroundColor: '#0284c7', display: 'flex', alignItems: 'center', padding: '0 10px', gap: '6px', zIndex: 40, boxSizing: 'border-box' }}>
+        <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginRight: '10px', display: 'flex', alignItems: 'center', gap: '4px' }}><FileText size={16} /> OmniStudio</span>
         
-        <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={14} /> PDF Portal</button>
-        <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={14} /> Canvas Studio</button>
-        <button onClick={() => setActivePortal('image')} style={portalTabStyle(activePortal === 'image')}><Sliders size={14} /> Image Filters</button>
-        <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={14} /> Video & Audio</button>
-        <button onClick={() => setActivePortal('transcribe')} style={portalTabStyle(activePortal === 'transcribe')}><Mic size={14} /> AI Subtitles</button>
+        <button onClick={() => setActivePortal('pdf')} style={portalTabStyle(activePortal === 'pdf')}><FileText size={13} /> PDF Portal</button>
+        <button onClick={() => setActivePortal('canvas')} style={portalTabStyle(activePortal === 'canvas')}><Type size={13} /> Canvas Studio</button>
+        <button onClick={() => setActivePortal('image')} style={portalTabStyle(activePortal === 'image')}><Sliders size={13} /> Image Filters</button>
+        <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video & Audio</button>
+        <button onClick={() => setActivePortal('transcribe')} style={portalTabStyle(activePortal === 'transcribe')}><Mic size={13} /> AI Subtitles</button>
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
-            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </div>
       </div>
 
-      {/* SECONDARY TOOL RIBBON (Contextual to Selected Portal) */}
-      <div style={{ height: '50px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 15px', justifyContent: 'space-between', zIndex: 30 }}>
+      {/* 2. SECONDARY TOOL RIBBON */}
+      <div style={{ height: '44px', minHeight: '46px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
-        {/* PDF EDITING TOOLS RIBBON */}
         {activePortal === 'pdf' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <label style={{ ...ribbonBtnStyle, backgroundColor: '#0284c7', color: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
+              <label style={prominentBtnStyle('#0284c7')}>
                 <Upload size={14} /> Open PDF
                 <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
               </label>
 
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={ribbonBtnStyle}><RotateCcw size={14} /></button>
-              <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={ribbonBtnStyle}><RotateCw size={14} /></button>
+              <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={14} /></button>
+              <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={14} /></button>
               
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Select Tool" onClick={() => activateToolMode('select')} style={activeToolBtn(activeTool === 'select')}><MousePointer size={14} /></button>
-              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={activeToolBtn(activeTool === 'hand')}><Hand size={14} /></button>
+              <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
+              <button title="Hand / Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
-              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 4px' }} />
+              <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <button title="Add / Edit Text" onClick={addText} style={ribbonBtnStyle}><Type size={14} /> Text</button>
-              <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={activeToolBtn(activeTool === 'highlight')}><Highlighter size={14} /> Highlight</button>
-              <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={activeToolBtn(activeTool === 'draw')}><Pencil size={14} /> Draw</button>
+              <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
+                <Type size={14} /> Text
+              </button>
 
-              {/* Eraser Menu */}
+              <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
+                <Highlighter size={14} /> Highlight
+              </button>
+
+              <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
+                <Pencil size={14} /> Draw
+              </button>
+
               <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={ribbonBtnStyle}>
-                  <Eraser size={14} /> Eraser <ChevronDown size={10} />
+                <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
+                  <Eraser size={14} /> Eraser <ChevronDown size={11} />
                 </button>
                 {activeDropdown === 'eraser' && (
                   <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={14} /> Whiteout Cover Box</button>
-                    <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={14} /> Vector Stroke Purge</button>
+                    <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={13} /> Whiteout Cover Box</button>
+                    <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={13} /> Vector Stroke Purge</button>
                   </div>
                 )}
               </div>
 
-              {/* Stamps Menu */}
               <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={ribbonBtnStyle}>
-                  <ImageIcon size={14} /> Image & Stamps <ChevronDown size={10} />
+                <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={prominentBtnStyle('#059669')}>
+                  <ImageIcon size={14} /> Image & Stamps <ChevronDown size={11} />
                 </button>
                 {activeDropdown === 'image' && (
                   <div style={dropdownMenuStyle(bgBar, borderCol)}>
                     <label style={dropdownItemStyle}>
-                      <Upload size={14} /> Local Image Upload
+                      <Upload size={13} /> Local Image Upload
                       <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
                     </label>
-                    <hr style={{ borderColor: borderCol, margin: '4px 0' }} />
-                    <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={14} color="#10b981" /> APPROVED Stamp</button>
-                    <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={14} color="#ef4444" /> CONFIDENTIAL Stamp</button>
-                    <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={14} color="#0284c7" /> DRAFT Stamp</button>
+                    <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
+                    <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={13} color="#10b981" /> APPROVED Stamp</button>
+                    <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={13} color="#ef4444" /> CONFIDENTIAL Stamp</button>
+                    <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={13} color="#0284c7" /> DRAFT Stamp</button>
                   </div>
                 )}
               </div>
 
-              {/* Shapes Menu */}
               <div style={{ position: 'relative' }}>
-                <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={ribbonBtnStyle}>
-                  <Square size={14} /> Shapes <ChevronDown size={10} />
+                <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
+                  <Square size={14} /> Shapes <ChevronDown size={11} />
                 </button>
                 {activeDropdown === 'shapes' && (
                   <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                    <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={14} /> Rectangle</button>
-                    <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={14} /> Ellipse / Oval</button>
-                    <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={14} /> Line</button>
-                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={14} color="#ef4444" /> Revision Cloud</button>
+                    <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
+                    <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
+                    <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
+                    <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud</button>
                   </div>
                 )}
               </div>
             </div>
 
-            <button onClick={exportCanvasImage} style={{ ...ribbonBtnStyle, backgroundColor: '#10b981', color: '#fff' }}><Download size={14} /> Export Page</button>
+            <button onClick={exportCanvasImage} style={prominentBtnStyle('#10b981')}><Download size={14} /> Export Page</button>
           </div>
         )}
 
-        {/* CANVAS TOOLS RIBBON */}
         {activePortal === 'canvas' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={addText} style={ribbonBtnStyle}><Type size={14} /> Add Text</button>
-            <label style={ribbonBtnStyle}>
-              <ImageIcon size={14} /> Add Image
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={addText} style={prominentBtnStyle('#0284c7')}><Type size={13} /> Add Text</button>
+            <label style={prominentBtnStyle('#059669')}>
+              <ImageIcon size={13} /> Add Image
               <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
             </label>
-            <button onClick={saveProjectJson} style={{ ...ribbonBtnStyle, backgroundColor: '#0284c7', color: '#fff' }}><Save size={14} /> Save JSON</button>
-            <label style={{ ...ribbonBtnStyle, backgroundColor: '#0369a1', color: '#fff' }}>
-              <Upload size={14} /> Load JSON
+            <button onClick={saveProjectJson} style={prominentBtnStyle('#0284c7')}><Save size={13} /> Save JSON</button>
+            <label style={prominentBtnStyle('#0369a1')}>
+              <Upload size={13} /> Load JSON
               <input type="file" accept=".json" onChange={loadProjectJson} style={{ display: 'none' }} />
             </label>
-            <button onClick={exportCanvasToMp4} style={{ ...ribbonBtnStyle, backgroundColor: '#8b5cf6', color: '#fff' }}><Play size={14} /> Render Canvas to MP4</button>
+            <button onClick={exportCanvasToMp4} style={prominentBtnStyle('#8b5cf6')}><Play size={13} /> Render Canvas to MP4</button>
           </div>
         )}
 
-        {/* IMAGE FILTERS RIBBON */}
         {activePortal === 'image' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <span style={{ fontSize: '12px' }}>Brightness: {imgBrightness}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '11px' }}>Brightness: {imgBrightness}</span>
             <input type="range" min="0.5" max="2" step="0.1" value={imgBrightness} onChange={(e) => setImgBrightness(e.target.value)} />
-            <span style={{ fontSize: '12px' }}>Blur: {imgBlur}</span>
+            <span style={{ fontSize: '11px' }}>Blur: {imgBlur}</span>
             <input type="range" min="0" max="10" step="0.5" value={imgBlur} onChange={(e) => setImgBlur(e.target.value)} />
-            <label style={{ ...ribbonBtnStyle, backgroundColor: '#0284c7', color: '#fff' }}>
-              <Sliders size={14} /> Upload & Fine-Tune Image
+            <label style={prominentBtnStyle('#0284c7')}>
+              <Sliders size={13} /> Upload & Fine-Tune Image
               <input type="file" accept="image/*" onChange={handleImageFineTune} style={{ display: 'none' }} />
             </label>
           </div>
         )}
 
-        {/* VIDEO & AUDIO RIBBON */}
         {activePortal === 'video' && (
-          <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>Stitch Tracks:</span>
-            <input type="file" name="video" accept="video/*" required style={{ fontSize: '11px' }} />
-            <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '11px' }} />
-            <button type="submit" style={{ ...ribbonBtnStyle, backgroundColor: '#8b5cf6', color: '#fff' }}><Music size={14} /> Stitch Audio+Video</button>
+          <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Stitch Tracks:</span>
+            <input type="file" name="video" accept="video/*" required style={{ fontSize: '10px' }} />
+            <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '10px' }} />
+            <button type="submit" style={prominentBtnStyle('#8b5cf6')}><Music size={13} /> Stitch Audio+Video</button>
           </form>
         )}
 
-        {/* AI SUBTITLES RIBBON */}
         {activePortal === 'transcribe' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <label style={{ ...ribbonBtnStyle, backgroundColor: '#ec4899', color: '#fff' }}>
-              <Mic size={14} /> Transcribe Media to Canvas
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={prominentBtnStyle('#ec4899')}>
+              <Mic size={13} /> Transcribe Media to Canvas
               <input type="file" accept="audio/*,video/*" onChange={handleTranscription} style={{ display: 'none' }} />
             </label>
-            <label style={{ ...ribbonBtnStyle, backgroundColor: '#d946ef', color: '#fff' }}>
-              <Captions size={14} /> Auto-Subtitle Video (MP4)
+            <label style={prominentBtnStyle('#d946ef')}>
+              <Captions size={13} /> Auto-Subtitle Video (MP4)
               <input type="file" accept="video/*" onChange={handleAutoSubtitleVideo} style={{ display: 'none' }} />
             </label>
           </div>
@@ -628,14 +692,83 @@ export default function CanvasStudio() {
 
       </div>
 
-      {/* MAIN BODY WORKSPACE */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* 3. COMPREHENSIVE TEXT FORMATTING INSPECTOR BAR */}
+      <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
+        <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
-        {/* PDF Page Thumbnails Panel (Shown in PDF mode) */}
+        {/* Font Family */}
+        <select 
+          value={fontFamilyVal} 
+          onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
+          style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
+        >
+          <option value="Arial">Arial</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Impact">Impact</option>
+          <option value="Trebuchet MS">Trebuchet MS</option>
+        </select>
+
+        {/* Font Size */}
+        <input 
+          type="number" 
+          min="8" 
+          max="120" 
+          value={fontSizeVal} 
+          onChange={(e) => { setFontSizeVal(Number(e.target.value)); updateActiveTextProp('fontSize', Number(e.target.value)); }}
+          style={{ width: '45px', padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
+        />
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
+
+        {/* Bold, Italic, Underline */}
+        <button onClick={() => { const next = !isBoldVal; setIsBoldVal(next); updateActiveTextProp('fontWeight', next ? 'bold' : 'normal'); }} style={inspectorToggleBtnStyle(isBoldVal)}><b>B</b></button>
+        <button onClick={() => { const next = !isItalicVal; setIsItalicVal(next); updateActiveTextProp('fontStyle', next ? 'italic' : 'normal'); }} style={inspectorToggleBtnStyle(isItalicVal)}><i>I</i></button>
+        <button onClick={() => { const next = !isUnderlineVal; setIsUnderlineVal(next); updateActiveTextProp('underline', next); }} style={inspectorToggleBtnStyle(isUnderlineVal)}><u>U</u></button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
+
+        {/* Align Text Left, Center, Right */}
+        <button title="Align Left" onClick={() => { setTextAlignVal('left'); updateActiveTextProp('textAlign', 'left'); }} style={inspectorToggleBtnStyle(textAlignVal === 'left')}><AlignLeft size={13} /></button>
+        <button title="Align Center" onClick={() => { setTextAlignVal('center'); updateActiveTextProp('textAlign', 'center'); }} style={inspectorToggleBtnStyle(textAlignVal === 'center')}><AlignCenter size={13} /></button>
+        <button title="Align Right" onClick={() => { setTextAlignVal('right'); updateActiveTextProp('textAlign', 'right'); }} style={inspectorToggleBtnStyle(textAlignVal === 'right')}><AlignRight size={13} /></button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
+
+        {/* Align Text Top, Middle, Bottom */}
+        <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignVerticalTop size={13} /></button>
+        <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignVerticalCenter size={13} /></button>
+        <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignVerticalBottom size={13} /></button>
+
+        <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
+
+        {/* Font Color */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          Font Color:
+          <input type="color" value={textColorVal} onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+        </label>
+
+        {/* Text Background Color */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          BG Color:
+          <input type="color" value={textBgColorVal} onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+        </label>
+
+        {/* Opacity */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          Opacity:
+          <input type="range" min="0.1" max="1" step="0.05" value={textOpacityVal} onChange={(e) => { setTextOpacityVal(Number(e.target.value)); updateActiveTextProp('opacity', Number(e.target.value)); }} style={{ width: '50px', cursor: 'pointer', accentColor: '#0284c7' }} />
+        </label>
+      </div>
+
+      {/* 4. MAIN EXACT-FIT WORKSPACE */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', boxSizing: 'border-box' }}>
+
         {activePortal === 'pdf' && (
-          <div style={{ width: '180px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div style={{ width: '160px', minWidth: '160px', backgroundColor: bgBar, borderRight: `1px solid ${borderCol}`, overflowY: 'auto', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box' }}>
             <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Page Navigator</span>
-            {thumbnails.length === 0 && <p style={{ fontSize: '11px', color: '#94a3b8' }}>Open a PDF to view thumbnails.</p>}
+            {thumbnails.length === 0 && <p style={{ fontSize: '10px', color: '#94a3b8' }}>Open a PDF to view thumbnails.</p>}
             {thumbnails.map((thumbUrl, idx) => (
               <div 
                 key={idx} 
@@ -643,7 +776,7 @@ export default function CanvasStudio() {
                 style={{ 
                   border: pageNum === idx + 1 ? '2px solid #0284c7' : `1px solid ${borderCol}`, 
                   borderRadius: '4px', 
-                  padding: '3px', 
+                  padding: '2px', 
                   cursor: 'pointer',
                   backgroundColor: pageNum === idx + 1 ? 'rgba(2, 132, 199, 0.1)' : 'transparent'
                 }}
@@ -655,38 +788,34 @@ export default function CanvasStudio() {
           </div>
         )}
 
-        {/* Center Canvas & Timeline Viewport */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: '15px' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '8px', boxSizing: 'border-box' }}>
           
-          <div style={{ width: '900px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-            <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
-              <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={14} /></button>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
-              <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={14} /></button>
-              <button title="Fit" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+          <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 6px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+              <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
+              <span style={{ fontSize: '10px', fontWeight: 'bold', width: '35px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+              <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
+              <button title="Fit" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', marginLeft: '2px' }}>Fit</button>
             </div>
           </div>
 
-          {/* Interactive Canvas Workspace */}
-          <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+          <div style={{ border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
             <canvas ref={canvasRef} />
           </div>
 
-          {/* Video Timeline Track */}
-          <div style={{ marginTop: '12px', width: '900px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px 15px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ marginTop: '6px', width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '4px 10px', borderRadius: '4px', display: 'flex', flexDirection: 'column', gap: '2px', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><Layers size={14} /> Video Timeline Track</span>
-              <span style={{ fontSize: '11px', color: '#0284c7' }}>00:00:{String(timelineSec).padStart(2, '0')} / 00:00:30</span>
+              <span style={{ fontSize: '10px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}><Layers size={13} /> Video Timeline Track</span>
+              <span style={{ fontSize: '10px', color: '#0284c7' }}>00:00:{String(timelineSec).padStart(2, '0')} / 00:00:30</span>
             </div>
             <input type="range" min="0" max="30" value={timelineSec} onChange={(e) => setTimelineSec(e.target.value)} style={{ width: '100%', cursor: 'pointer', accentColor: '#0284c7' }} />
           </div>
 
-          {/* Transcription Output Display */}
           {transcriptionText && (
-            <div style={{ marginTop: '10px', width: '900px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px 15px', borderRadius: '6px' }}>
-              <h3 style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '3px' }}>Transcription Text:</h3>
-              <p style={{ fontSize: '12px', margin: 0 }}>{transcriptionText}</p>
+            <div style={{ marginTop: '4px', width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '4px 10px', borderRadius: '4px' }}>
+              <h3 style={{ fontSize: '10px', fontWeight: 'bold', margin: 0 }}>Transcription Text:</h3>
+              <p style={{ fontSize: '10px', margin: 0 }}>{transcriptionText}</p>
             </div>
           )}
 
@@ -702,63 +831,85 @@ export default function CanvasStudio() {
 const portalTabStyle = (active) => ({
   display: 'flex',
   alignItems: 'center',
-  gap: '6px',
-  padding: '6px 12px',
+  gap: '5px',
+  padding: '4px 10px',
   backgroundColor: active ? '#0f172a' : 'transparent',
   color: '#ffffff',
   border: 'none',
   borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '12px',
+  fontSize: '11px',
   fontWeight: 'bold',
 });
 
-const ribbonBtnStyle = {
+const prominentBtnStyle = (bgColor) => ({
   display: 'flex',
   alignItems: 'center',
   gap: '5px',
-  padding: '5px 10px',
-  backgroundColor: 'transparent',
+  padding: '4px 9px',
+  backgroundColor: bgColor,
+  color: '#ffffff',
   border: 'none',
   borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '12px',
-  fontWeight: '500',
-};
+  fontSize: '11px',
+  fontWeight: 'bold',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+  whiteSpace: 'nowrap',
+});
 
-const activeToolBtn = (active) => ({
-  ...ribbonBtnStyle,
+const iconToolBtnStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '4px 8px',
   backgroundColor: active ? '#0284c7' : 'transparent',
   color: active ? '#ffffff' : 'inherit',
+  border: 'none',
+  borderRadius: '4px',
+  cursor: 'pointer',
+});
+
+const inspectorToggleBtnStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '3px 7px',
+  backgroundColor: active ? '#0284c7' : 'transparent',
+  color: active ? '#ffffff' : 'inherit',
+  border: '1px solid #334155',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
 });
 
 const dropdownMenuStyle = (bg, border) => ({
   position: 'absolute',
   top: '100%',
   left: 0,
-  marginTop: '4px',
+  marginTop: '3px',
   backgroundColor: bg,
   border: `1px solid ${border}`,
   borderRadius: '6px',
   boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)',
-  padding: '6px',
+  padding: '4px',
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
-  minWidth: '170px',
+  gap: '3px',
+  minWidth: '160px',
   zIndex: 50,
 });
 
 const dropdownItemStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
-  padding: '6px 8px',
+  gap: '6px',
+  padding: '5px 8px',
   backgroundColor: 'transparent',
   border: 'none',
   borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '12px',
+  fontSize: '11px',
   textAlign: 'left',
   width: '100%',
 };
