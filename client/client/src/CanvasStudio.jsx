@@ -20,9 +20,8 @@ import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:5000/api'
-  : 'https://omnistudio-canvas-api.onrender.com/api';
+// Automatically handles local dev and live Vercel deployments!
+const API_BASE = '/api';
 
 /**
  * Helper: Guarantees a strict 7-character #RRGGBB hex string to prevent 
@@ -1169,7 +1168,7 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/video/render-canvas`, { frames, fps: 30 });
-      const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
+      const videoUrl = `/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
       setActivePortal('video');
       setStatus(`Animation exported! Playing in Video Portal...`);
@@ -1214,7 +1213,7 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/video/auto-subtitle`, formData);
-      const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
+      const videoUrl = `/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
 
       const text = res.data.transcriptionText || '';
@@ -1294,6 +1293,16 @@ export default function CanvasStudio() {
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
         <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
+
+        {isProUser ? (
+          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', padding: '3px 8px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+            ⚡ Pro Active
+          </span>
+        ) : (
+          <button onClick={handlePaystackUpgrade} style={paystackHeaderBtnStyle}>
+            ⚡ Upgrade Pro ($9/mo - MoMo/Card)
+          </button>
+        )}
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
@@ -1901,6 +1910,22 @@ const enableEditBtnStyle = {
   gap: '4px',
   padding: '3px 10px',
   backgroundColor: '#f59e0b',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+};
+
+const paystackHeaderBtnStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: '#059669', // Paystack Green Accent
   color: '#ffffff',
   border: 'none',
   borderRadius: '3px',
