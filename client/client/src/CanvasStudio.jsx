@@ -658,46 +658,61 @@ export default function CanvasStudio() {
     setStatus(`📄 Moved Page ${fromIdx + 1} to Position ${toIdx + 1}`);
   };
 
-  // --- SAFE ADD TEXT FUNCTION ---
-  const addText = () => {
-    try {
-      if (!isEditMode) setIsEditMode(true);
-      if (!fabricCanvas) return;
-      
-      activateToolMode('select');
+  // --- BULLETPROOF FAIL-SAFE ADD TEXT FUNCTION ---
+const addText = () => {
+  try {
+    if (!fabricCanvas) {
+      console.warn('Fabric canvas not initialized yet.');
+      return;
+    }
 
-      const safeFill = ensureValidHexColor(textColorVal, '#0f172a');
-      const safeBg = textBgColorVal && textBgColorVal.startsWith('#') ? textBgColorVal : 'transparent';
+    // Safely enable edit mode if view-only
+    if (!isEditMode) {
+      setIsEditMode(true);
+    }
 
-      const textObj = new fabric.IText('Type text here...', { 
-        left: 200, 
-        top: 200, 
-        fontSize: Math.max(12, fontSizeVal || 24), 
-        fontFamily: fontFamilyVal || 'Arial',
-        fill: safeFill,
-        textBackgroundColor: safeBg === '#ffffff' ? 'transparent' : safeBg,
-        opacity: textOpacityVal || 1.0,
-        fontWeight: isBoldVal ? 'bold' : 'normal',
-        fontStyle: isItalicVal ? 'italic' : 'normal',
-        underline: !!isUnderlineVal,
-        textAlign: textAlignVal || 'left',
-        lineHeight: lineHeightVal || 1.16,
-        charSpacing: charSpacingVal || 0,
-        selectable: true,
-        editable: true,
-      });
+    // Switch tool mode back to select
+    setActiveTool('select');
 
-      fabricCanvas.add(textObj);
-      fabricCanvas.setActiveObject(textObj);
-      setActiveEditingObject(textObj);
+    // Safe fallbacks for all numerical and string typography properties
+    const safeFontSize = Number(fontSizeVal) > 0 ? Number(fontSizeVal) : 24;
+    const safeFontFamily = fontFamilyVal || 'Arial';
+    const safeColor = textColorVal || '#0f172a';
+    const safeBg = (textBgColorVal && textBgColorVal !== '#ffffff') ? textBgColorVal : undefined;
+
+    // Create Fabric IText Object with safe properties
+    const textObj = new fabric.IText('Type text here...', { 
+      left: fabricCanvas.width ? fabricCanvas.width / 3 : 150, 
+      top: fabricCanvas.height ? fabricCanvas.height / 3 : 150, 
+      fontSize: safeFontSize, 
+      fontFamily: safeFontFamily,
+      fill: safeColor,
+      textBackgroundColor: safeBg,
+      fontWeight: isBoldVal ? 'bold' : 'normal',
+      fontStyle: isItalicVal ? 'italic' : 'normal',
+      underline: !!isUnderlineVal,
+      textAlign: textAlignVal || 'left',
+      selectable: true,
+      editable: true,
+    });
+
+    // Add to canvas safely
+    fabricCanvas.add(textObj);
+    fabricCanvas.setActiveObject(textObj);
+    setActiveEditingObject(textObj);
+
+    // Render safely in next animation frame
+    requestAnimationFrame(() => {
       fabricCanvas.renderAll();
       saveState(fabricCanvas);
       setStatus('✏️ Added new editable text box.');
-    } catch (err) {
-      console.error('Error adding text object:', err);
-      setStatus(`Error adding text: ${err.message}`);
-    }
-  };
+    });
+  } catch (err) {
+    console.error('[Add Text Error]:', err);
+    alert(`Could not add text box: ${err.message}`);
+    setStatus(`Error adding text: ${err.message}`);
+  }
+};
 
   const updateInspectorFromSelection = (obj) => {
     if (!obj || (obj.type !== 'i-text' && obj.type !== 'text' && obj.type !== 'textbox')) return;
