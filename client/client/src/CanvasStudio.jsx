@@ -6,12 +6,12 @@ import { jsPDF } from 'jspdf';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
   Music, Play, Pause, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
-  ChevronRight, Eye, PanelLeftClose, PanelLeftOpen, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
+  ChevronRight, Eye, EyeOff, PanelLeftClose, PanelLeftOpen, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
-  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, Zap
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Unlock, Film, CheckSquare, LogOut,
+  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard, FolderOpen
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
@@ -20,8 +20,10 @@ import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
-// Automatically handles local dev and live Vercel deployments!
-const API_BASE = '/api';
+// Points to Vercel Serverless API or Local Server
+const API_BASE = window.location.hostname === 'localhost'
+  ? 'http://localhost:5000/api'
+  : '/api';
 
 /**
  * Helper: Guarantees a strict 7-character #RRGGBB hex string to prevent 
@@ -41,26 +43,30 @@ const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
+  const copiedObjectRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  
-  // Office Fluent UI Active Tab: 'home' | 'insert' | 'annotate' | 'page' | 'media'
-  const [fluentTab, setFluentTab] = useState('home');
   const [activePortal, setActivePortal] = useState('pdf');
   
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready - View Mode');
 
   const [isEditMode, setIsEditMode] = useState(false);
-  const [isProUser, setIsProUser] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState(null);
 
   // Dynamic Fit Mode State: 'width' | 'page'
   const [fitMode, setFitMode] = useState('width');
 
+  // Layers Manager State
+  const [canvasLayers, setCanvasLayers] = useState([]);
+
+  // Auto-Save & Recent Projects State
+  const [recentProjects, setRecentProjects] = useState([]);
+  const [showProjectsModal, setShowProjectsModal] = useState(false);
+
   // Cloud Sync State
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [projectTitle] = useState('My OmniStudio Project');
+  const [projectTitle, setProjectTitle] = useState('My OmniStudio Project');
   const [mockUserId] = useState('user_' + Math.random().toString(36).substring(7));
 
   const [activeTool, setActiveTool] = useState('hand');
@@ -134,7 +140,7 @@ export default function CanvasStudio() {
     }
   ]);
 
-  const [clips, setClips] = useState([
+  const [clips] = useState([
     { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
     { id: 'c2', trackId: 't2', name: 'Background Audio.mp3', type: 'audio', timelineStart: 0, duration: 25 },
     { id: 'c3', trackId: 't4', name: 'Whisper Subtitles', type: 'transcription', timelineStart: 2, duration: 10 },
@@ -146,57 +152,109 @@ export default function CanvasStudio() {
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  // Detect Paystack redirect on page load
+  // --- GOOGLE FONTS DYNAMIC INJECTION ENGINE ---
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
-    const reference = urlParams.get('reference') || urlParams.get('trxref');
-
-    if (paymentStatus === 'success' || reference) {
-      verifyPaystackPayment(reference);
-    }
+    const fontLink = document.createElement('link');
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Bebas+Neue&family=Bungee&family=Caveat&family=Cinzel&family=Cormorant+Garamond&family=Courgette&family=Dancing+Script&family=Fira+Code&family=Great+Vibes&family=Inter&family=JetBrains+Mono&family=Lato&family=Lobster&family=Lora&family=Merriweather&family=Montserrat&family=Nunito&family=Open+Sans&family=Orbitron&family=Oswald&family=Pacifico&family=Permanent+Marker&family=Playfair+Display&family=Poppins&family=Press+Start+2P&family=Raleway&family=Roboto&family=Sacramento&family=Satisfy&family=Source+Code+Pro&display=swap';
+    fontLink.rel = 'stylesheet';
+    document.head.appendChild(fontLink);
   }, []);
 
-  const verifyPaystackPayment = async (reference) => {
-    setStatus('🔍 Verifying Paystack transaction status...');
-    try {
-      const res = await axios.get(`${API_BASE}/billing/verify-paystack/${reference}`);
-      if (res.data?.status === 'success') {
-        setIsProUser(true);
-        setStatus('🎉 Paystack Payment Verified! OmniStudio Pro Active.');
-        alert('⚡ Welcome to OmniStudio Pro! 4K Exports, Whisper AI & Green Screen unlocked.');
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else {
-        setStatus('⚠️ Payment verification pending or failed.');
+  // --- AUTO-SAVE & RECENT PROJECTS RESTORER ---
+  useEffect(() => {
+    const autoSaveInterval = setInterval(() => {
+      if (fabricCanvas) {
+        const projectData = {
+          id: currentProjectId || 'proj_' + Date.now(),
+          title: projectTitle || 'OmniStudio Project',
+          timestamp: new Date().toLocaleString(),
+          canvasJson: fabricCanvas.toJSON(),
+          transcriptSegments,
+        };
+
+        localStorage.setItem('omnistudio_last_autosave', JSON.stringify(projectData));
+        
+        // Save to recent projects history array
+        const existing = JSON.parse(localStorage.getItem('omnistudio_recent_projects') || '[]');
+        const filtered = existing.filter((p) => p.id !== projectData.id);
+        const updatedList = [projectData, ...filtered].slice(0, 5); // Keep last 5 projects
+        
+        localStorage.setItem('omnistudio_recent_projects', JSON.stringify(updatedList));
+        setRecentProjects(updatedList);
       }
-    } catch (err) {
-      console.error('Verification Error:', err);
-      setStatus('Error verifying payment reference.');
-    }
+    }, 30000);
+
+    return () => clearInterval(autoSaveInterval);
+  }, [fabricCanvas, currentProjectId, projectTitle, transcriptSegments]);
+
+  const restoreRecentProject = (proj) => {
+    if (!fabricCanvas || !proj) return;
+    fabricCanvas.loadFromJSON(proj.canvasJson, () => {
+      if (proj.transcriptSegments) setTranscriptSegments(proj.transcriptSegments);
+      fabricCanvas.renderAll();
+      setShowProjectsModal(false);
+      setStatus(`📂 Restored project: ${proj.title}`);
+    });
   };
 
-  const handlePaystackUpgrade = async () => {
-    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
-    if (!userEmail) return;
+  // --- SAMPLE DEMO PROJECT LOADER ---
+  const loadSampleDemo = () => {
+    if (!fabricCanvas) return;
 
-    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
+    fabricCanvas.clear();
 
-    try {
-      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
-        userId: mockUserId,
-        email: userEmail,
-        currency: 'USD',
-      });
+    const titleText = new fabric.IText('OmniStudio Canvas Sample Demo', {
+      left: 80,
+      top: 60,
+      fontSize: 28,
+      fontFamily: 'Roboto',
+      fontWeight: 'bold',
+      fill: '#0284c7',
+    });
 
-      if (res.data?.authorizationUrl) {
-        window.location.href = res.data.authorizationUrl;
-      } else {
-        alert('Could not start Paystack checkout. Please check server keys.');
-      }
-    } catch (err) {
-      console.error('Paystack Checkout Error:', err);
-      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
-    }
+    const stampText = new fabric.Text('APPROVED', { fontSize: 20, fontWeight: 'bold', fill: '#10b981', left: 15, top: 10 });
+    const stampRect = new fabric.Rect({ width: stampText.width + 30, height: stampText.height + 20, fill: 'rgba(255, 255, 255, 0.9)', stroke: '#10b981', strokeWidth: 3, rx: 6, ry: 6 });
+    const stampGroup = new fabric.Group([stampRect, stampText], { left: 520, top: 80, angle: -12 });
+
+    const shape = new fabric.Rect({ left: 80, top: 180, width: 220, height: 120, fill: 'rgba(2, 132, 199, 0.1)', stroke: '#0284c7', strokeWidth: 2, rx: 8, ry: 8 });
+
+    fabricCanvas.add(titleText, stampGroup, shape);
+
+    setTranscriptionText('Welcome to OmniStudio Canvas. Edit text, video tracks, and subtitles seamlessly.');
+    setTranscriptSegments([
+      {
+        id: 'demo-1',
+        speaker: 'Speaker 1',
+        text: 'Welcome to OmniStudio Canvas.',
+        start: 0,
+        end: 2.5,
+        words: [
+          { id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 },
+          { id: 'w2', word: 'to', start: 0.6, end: 0.8, confidence: 0.98 },
+          { id: 'w3', word: 'OmniStudio', start: 0.9, end: 1.8, confidence: 0.95 },
+          { id: 'w4', word: 'Canvas.', start: 1.9, end: 2.5, confidence: 0.99 },
+        ],
+      },
+      {
+        id: 'demo-2',
+        speaker: 'Speaker 1',
+        text: 'Edit text, video tracks, and subtitles seamlessly.',
+        start: 2.8,
+        end: 6.5,
+        words: [
+          { id: 'w5', word: 'Edit', start: 2.8, end: 3.2, confidence: 0.98 },
+          { id: 'w6', word: 'text,', start: 3.3, end: 3.8, confidence: 0.99 },
+          { id: 'w7', word: 'video', start: 3.9, end: 4.4, confidence: 0.99 },
+          { id: 'w8', word: 'tracks,', start: 4.5, end: 5.0, confidence: 0.98 },
+          { id: 'w9', word: 'and', start: 5.1, end: 5.3, confidence: 0.98 },
+          { id: 'w10', word: 'subtitles.', start: 5.4, end: 6.5, confidence: 0.99 },
+        ],
+      },
+    ]);
+
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('✨ Sample Demo Project Loaded onto Canvas!');
   };
 
   useEffect(() => {
@@ -282,6 +340,283 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
+  // --- LAYERS MANAGER HANDLERS ---
+  const updateLayersList = () => {
+    if (!fabricCanvas) return;
+    const objs = fabricCanvas.getObjects().slice().reverse();
+    setCanvasLayers(objs);
+  };
+
+  useEffect(() => {
+    if (!fabricCanvas) return;
+    fabricCanvas.on('object:added', updateLayersList);
+    fabricCanvas.on('object:removed', updateLayersList);
+    fabricCanvas.on('object:modified', updateLayersList);
+    return () => {
+      fabricCanvas.off('object:added', updateLayersList);
+      fabricCanvas.off('object:removed', updateLayersList);
+      fabricCanvas.off('object:modified', updateLayersList);
+    };
+  }, [fabricCanvas]);
+
+  const bringLayerToFront = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.bringObjectToFront(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const sendLayerToBack = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.sendObjectToBack(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerLock = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    const isLocked = !obj.selectable;
+    obj.set({
+      selectable: isLocked,
+      evented: isLocked,
+    });
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerVisibility = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    obj.set('visible', !obj.visible);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  // --- GLOBAL KEYBOARD SHORTCUTS ENGINE ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const targetTag = e.target ? e.target.tagName.toLowerCase() : '';
+      const isEditingText = targetTag === 'input' || targetTag === 'textarea' || (fabricCanvas && fabricCanvas.getActiveObject()?.isEditing);
+
+      if (isEditingText) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlayPause();
+      }
+
+      if (e.code === 'Delete' || e.code === 'Backspace') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const activeObjs = fabricCanvas.getActiveObjects();
+          activeObjs.forEach((obj) => fabricCanvas.remove(obj));
+          fabricCanvas.discardActiveObject();
+          fabricCanvas.renderAll();
+          saveState();
+          setStatus('🗑️ Deleted selected element(s)');
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        handleRedo();
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const activeObj = fabricCanvas.getActiveObject();
+          if (activeObj) {
+            if (activeObj.clone.length > 0) {
+              activeObj.clone((cloned) => {
+                copiedObjectRef.current = cloned;
+                setStatus('📋 Copied element to clipboard');
+              });
+            } else {
+              Promise.resolve(activeObj.clone()).then((cloned) => {
+                copiedObjectRef.current = cloned;
+                setStatus('📋 Copied element to clipboard');
+              });
+            }
+          }
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        if (fabricCanvas && copiedObjectRef.current) {
+          const handleClonedPaste = (clonedObj) => {
+            fabricCanvas.discardActiveObject();
+            clonedObj.set({
+              left: clonedObj.left + 20,
+              top: clonedObj.top + 20,
+              evented: true,
+            });
+            if (clonedObj.type === 'activeSelection') {
+              clonedObj.canvas = fabricCanvas;
+              clonedObj.forEachObject((obj) => fabricCanvas.add(obj));
+              clonedObj.setCoordinates();
+            } else {
+              fabricCanvas.add(clonedObj);
+            }
+            fabricCanvas.setActiveObject(clonedObj);
+            fabricCanvas.requestRenderAll();
+            saveState();
+            setStatus('📄 Pasted element onto canvas');
+          };
+
+          if (copiedObjectRef.current.clone.length > 0) {
+            copiedObjectRef.current.clone(handleClonedPaste);
+          } else {
+            Promise.resolve(copiedObjectRef.current.clone()).then(handleClonedPaste);
+          }
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const objs = fabricCanvas.getObjects();
+          if (objs.length > 0) {
+            const selection = new fabric.ActiveSelection(objs, { canvas: fabricCanvas });
+            fabricCanvas.setActiveObject(selection);
+            fabricCanvas.renderAll();
+            setStatus('✨ Selected all canvas elements');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fabricCanvas, undoStack, redoStack, isPlaying]);
+
+  // --- ASPECT RATIO PRESETS HANDLER ---
+  const applyCanvasPresetRatio = (preset) => {
+    if (!fabricCanvas) return;
+
+    let width = 820;
+    let height = 480;
+
+    if (preset === '16:9') {
+      width = 854;
+      height = 480;
+    } else if (preset === '9:16') {
+      width = 360;
+      height = 640;
+    } else if (preset === '1:1') {
+      width = 500;
+      height = 500;
+    } else if (preset === 'A4') {
+      width = 595;
+      height = 842;
+    }
+
+    fabricCanvas.setDimensions({ width, height });
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus(`📐 Resized Canvas Preset to ${preset} (${width}x${height}px)`);
+  };
+
+  // --- TEXT EFFECTS HANDLERS ---
+  const applyTextShadow = (shadowColor = '#000000', blur = 8) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set('shadow', new fabric.Shadow({
+        color: shadowColor,
+        blur: blur,
+        offsetX: 4,
+        offsetY: 4
+      }));
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✨ Applied Text Drop Shadow Effect');
+    }
+  };
+
+  const applyTextStroke = (strokeColor = '#000000', strokeWidth = 2) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set({
+        stroke: strokeColor,
+        strokeWidth: strokeWidth
+      });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✏️ Applied Text Stroke Outline Effect');
+    }
+  };
+
+  // --- WATERMARKING & PAGE REORDERING HANDLERS ---
+  const applyWatermarkToAllPages = (watermarkText = 'CONFIDENTIAL') => {
+    if (!fabricCanvas) return;
+    const text = prompt('Enter Watermark Text for All Pages:', watermarkText);
+    if (!text) return;
+
+    const watermarkObj = new fabric.Text(text.toUpperCase(), {
+      fontSize: 48,
+      fontFamily: 'Arial',
+      fontWeight: 'bold',
+      fill: 'rgba(239, 68, 68, 0.25)',
+      angle: -35,
+      originX: 'center',
+      originY: 'center',
+      left: fabricCanvas.width / 2,
+      top: fabricCanvas.height / 2,
+      selectable: true,
+    });
+
+    fabricCanvas.add(watermarkObj);
+    fabricCanvas.setActiveObject(watermarkObj);
+    saveState();
+    setStatus(`💧 Added Watermark: "${text}" to Page View`);
+  };
+
+  const movePdfPage = (fromIdx, toIdx) => {
+    if (fromIdx < 0 || toIdx < 0 || fromIdx >= thumbnails.length || toIdx >= thumbnails.length) return;
+    const updatedThumbs = [...thumbnails];
+    const [movedThumb] = updatedThumbs.splice(fromIdx, 1);
+    updatedThumbs.splice(toIdx, 0, movedThumb);
+    setThumbnails(updatedThumbs);
+    setStatus(`📄 Moved Page ${fromIdx + 1} to Position ${toIdx + 1}`);
+  };
+
+  // --- PAYSTACK SUBSCRIPTION HANDLER ---
+  const handlePaystackUpgrade = async () => {
+    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
+    if (!userEmail) return;
+
+    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
+
+    try {
+      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
+        userId: mockUserId,
+        email: userEmail,
+        currency: 'USD',
+      });
+
+      if (res.data?.authorizationUrl) {
+        window.location.href = res.data.authorizationUrl;
+      } else {
+        alert('Could not start Paystack checkout. Please check server keys.');
+      }
+    } catch (err) {
+      console.error('Paystack Checkout Error:', err);
+      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
+    }
+  };
+
+  // --- SAFE ADD TEXT FUNCTION ---
   const addText = () => {
     try {
       if (!isEditMode) setIsEditMode(true);
@@ -1168,7 +1503,7 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/video/render-canvas`, { frames, fps: 30 });
-      const videoUrl = `/outputs/${res.data.file}`;
+      const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
       setActivePortal('video');
       setStatus(`Animation exported! Playing in Video Portal...`);
@@ -1213,7 +1548,7 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/video/auto-subtitle`, formData);
-      const videoUrl = `/outputs/${res.data.file}`;
+      const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
 
       const text = res.data.transcriptionText || '';
@@ -1270,6 +1605,39 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
+        {/* LOAD SAMPLE DEMO BUTTON */}
+        <button 
+          title="Instantly load sample project elements" 
+          onClick={loadSampleDemo} 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            backgroundColor: '#8b5cf6',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ✨ Load Sample Demo
+        </button>
+
+        {/* OPEN RECENT PROJECTS BUTTON */}
+        <button 
+          title="Open Recent Projects History" 
+          onClick={() => setShowProjectsModal(true)} 
+          style={globalHeaderBtnStyle}
+        >
+          <FolderOpen size={13} /> Recent Projects
+        </button>
+
+        <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
         {!isEditMode ? (
           <button title="Click to Initialize Editing Process" onClick={initializeEditProcess} style={enableEditBtnStyle}>
             <Edit3 size={13} /> Enable Editing
@@ -1284,25 +1652,33 @@ export default function CanvasStudio() {
 
         <button title="Search Text" onClick={handleSearch} style={globalHeaderBtnStyle}><Search size={13} /> Search</button>
         <button title="Print Document Page" onClick={handlePrint} style={globalHeaderBtnStyle}><Printer size={13} /> Print</button>
-        <button title="Download Page Image" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download PNG</button>
-        
-        <button title="Export Complete Multi-Page PDF Document" onClick={exportCompletePdf} style={exportPdfHeaderBtnStyle}>
-          <FileDown size={13} /> Export PDF
-        </button>
-
+        <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
-        <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
+        {/* PAYSTACK UPGRADE PRO BUTTON */}
+        <button 
+          onClick={handlePaystackUpgrade}
+          title="Upgrade to Pro with Mobile Money or Card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            backgroundColor: '#059669',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+          }}
+        >
+          ⚡ Upgrade Pro ($9/mo - MoMo/Card)
+        </button>
 
-        {isProUser ? (
-          <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.2)', padding: '3px 8px', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
-            ⚡ Pro Active
-          </span>
-        ) : (
-          <button onClick={handlePaystackUpgrade} style={paystackHeaderBtnStyle}>
-            ⚡ Upgrade Pro ($9/mo - MoMo/Card)
-          </button>
-        )}
+        <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
@@ -1311,316 +1687,335 @@ export default function CanvasStudio() {
         </div>
       </div>
 
-      {/* 2. MICROSOFT OFFICE FLUENT UI TABBED RIBBON BAR */}
-      <div style={{ backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', flexDirection: 'column', zIndex: 30, boxSizing: 'border-box' }}>
+      {/* 2. SECONDARY TOOL RIBBON (Scrollable) */}
+      <div className="custom-scroll" style={{ height: '44px', minHeight: '44px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', zIndex: 30, boxSizing: 'border-box', overflowX: 'auto' }}>
         
-        {/* FLUENT RIBBON TAB HEADERS */}
-        <div style={{ display: 'flex', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', borderBottom: `1px solid ${borderCol}`, padding: '2px 10px', gap: '2px', overflowX: 'auto' }}>
-          <button onClick={() => setFluentTab('home')} style={fluentTabBtnStyle(fluentTab === 'home', darkMode)}>Home</button>
-          <button onClick={() => setFluentTab('insert')} style={fluentTabBtnStyle(fluentTab === 'insert', darkMode)}>Insert</button>
-          <button onClick={() => setFluentTab('annotate')} style={fluentTabBtnStyle(fluentTab === 'annotate', darkMode)}>Annotate & Security</button>
-          <button onClick={() => setFluentTab('page')} style={fluentTabBtnStyle(fluentTab === 'page', darkMode)}>Page & View</button>
-          <button onClick={() => setFluentTab('media')} style={fluentTabBtnStyle(fluentTab === 'media', darkMode)}>Media & AI</button>
-        </div>
+        {activePortal === 'pdf' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', flexWrap: 'nowrap' }}>
+            <label style={prominentBtnStyle('#0284c7')}>
+              <Upload size={14} /> Open PDF
+              <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
+            </label>
 
-        {/* FLUENT RIBBON CONTENT PANELS */}
-        <div className="custom-scroll" style={{ padding: '6px 12px', minHeight: '48px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px' }}>
-          
-          {/* TAB 1: HOME */}
-          {fluentTab === 'home' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-              
-              <div style={fluentGroupStyle(borderCol)}>
-                <label style={prominentBtnStyle('#0284c7')}>
-                  <Upload size={13} /> Open PDF
-                  <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
-                </label>
-                <div style={{ display: 'flex', gap: '2px' }}>
-                  <button title="Undo" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}><RotateCcw size={13} /></button>
-                  <button title="Redo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}><RotateCw size={13} /></button>
-                </div>
-                <span style={fluentGroupCaptionStyle}>History</span>
-              </div>
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={13} /></button>
-                  <button title="Hand / Drag-to-Pan Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={13} /></button>
-                </div>
-                <span style={fluentGroupCaptionStyle}>Pointer</span>
-              </div>
+            <button title="Undo Safety Net" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}>
+              <RotateCcw size={14} />
+            </button>
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
-                  <Type size={13} /> Add Text
-                </button>
-                <button title="Point & Replace (Direct Word Processor Editing)" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
-                  <Target size={13} /> Point & Replace
-                </button>
-                <span style={fluentGroupCaptionStyle}>Text Tools</span>
-              </div>
+            <button title="Redo Forward Restorer" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}>
+              <RotateCw size={14} />
+            </button>
+            
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}><Highlighter size={13} /> Highlight</button>
-                  <button title="Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}><Pencil size={13} /> Draw</button>
-                </div>
-                <span style={fluentGroupCaptionStyle}>Quick Markup</span>
-              </div>
+            <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
+            <button title="Hand Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
+            <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+            <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
+              <Type size={14} /> Text
+            </button>
+
+            {/* WATERMARK DOCUMENT BUTTON */}
+            <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
+              💧 Watermark Document
+            </button>
+
+            {/* ASPECT RATIO PRESETS SELECTOR */}
+            <div style={{ display: 'flex', gap: '3px', borderLeft: `1px solid ${borderCol}`, borderRight: `1px solid ${borderCol}`, padding: '0 6px' }}>
+              <button title="YouTube Widescreen (16:9)" onClick={() => applyCanvasPresetRatio('16:9')} style={inspectorToggleBtnStyle(false)}>16:9</button>
+              <button title="TikTok / Reels Vertical (9:16)" onClick={() => applyCanvasPresetRatio('9:16')} style={inspectorToggleBtnStyle(false)}>9:16</button>
+              <button title="Instagram Square (1:1)" onClick={() => applyCanvasPresetRatio('1:1')} style={inspectorToggleBtnStyle(false)}>1:1</button>
+              <button title="A4 Print Document" onClick={() => applyCanvasPresetRatio('A4')} style={inspectorToggleBtnStyle(false)}>A4</button>
             </div>
-          )}
 
-          {/* TAB 2: INSERT */}
-          {fluentTab === 'insert' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-              
-              <div style={fluentGroupStyle(borderCol)}>
-                <label style={prominentBtnStyle('#059669')}>
-                  <Upload size={13} /> Local Image Upload
-                  <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-                </label>
-                <span style={fluentGroupCaptionStyle}>Media</span>
-              </div>
+            <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
+              <ShieldAlert size={14} /> Redact
+            </button>
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}><Check size={13} /> Check</button>
-                  <button title="Add Red Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}><X size={13} /> Cross</button>
-                  <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}><PenTool size={13} /> Sign</button>
+            {pendingRedactionsCount > 0 && (
+              <button title="Apply Redactions" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
+                <CheckSquare size={14} /> Apply Redactions ({pendingRedactionsCount})
+              </button>
+            )}
+
+            <button title="Flatten PDF" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
+              <Lock size={14} /> Flatten PDF
+            </button>
+
+            <button title="Find & Replace" onClick={handleFindAndReplaceWithReflow} style={prominentBtnStyle('#0284c7')}>
+              <RefreshCw size={14} /> Find & Replace
+            </button>
+
+            <button title="Point & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+              <Target size={14} /> Point & Replace
+            </button>
+
+            <button title="Text Highlight" onClick={() => activateToolMode('highlight')} style={prominentBtnStyle(activeTool === 'highlight' ? '#b45309' : '#d97706')}>
+              <Highlighter size={14} /> Highlight
+            </button>
+
+            <button title="Ink Freehand Draw" onClick={() => activateToolMode('draw')} style={prominentBtnStyle(activeTool === 'draw' ? '#991b1b' : '#dc2626')}>
+              <Pencil size={14} /> Draw
+            </button>
+
+            <button title="Add Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
+              <Check size={14} /> Check
+            </button>
+
+            <button title="Add Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
+              <X size={14} /> Cross
+            </button>
+
+            <button title="Electronic Signature" onClick={addElectronicSignature} style={prominentBtnStyle('#8b5cf6')}>
+              <PenTool size={14} /> Sign
+            </button>
+
+            <button title="Attach Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
+              <Link size={14} /> Links
+            </button>
+
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
+                <Eraser size={14} /> Eraser <ChevronDown size={11} />
+              </button>
+              {activeDropdown === 'eraser' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={13} /> Whiteout Cover Box</button>
+                  <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={13} /> Vector Stroke Purge</button>
                 </div>
-                <span style={fluentGroupCaptionStyle}>Stamps & Signatures</span>
-              </div>
+              )}
+            </div>
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <div style={{ position: 'relative' }}>
-                  <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
-                    <Square size={13} /> Shapes <ChevronDown size={11} />
-                  </button>
-                  {activeDropdown === 'shapes' && (
-                    <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                      <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
-                      <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
-                      <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
-                      <button onClick={() => addShape('arrow')} style={dropdownItemStyle}><MoveRight size={13} /> Arrow Connector</button>
-                      <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
-                      <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
-                      <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
-                    </div>
-                  )}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'image' ? null : 'image')} style={prominentBtnStyle('#059669')}>
+                <ImageIcon size={14} /> Image & Stamps <ChevronDown size={11} />
+              </button>
+              {activeDropdown === 'image' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <label style={dropdownItemStyle}>
+                    <Upload size={13} /> Local Image Upload
+                    <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+                  </label>
+                  <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
+                  <button onClick={() => addStamp('APPROVED')} style={dropdownItemStyle}><Stamp size={13} color="#10b981" /> APPROVED Stamp</button>
+                  <button onClick={() => addStamp('CONFIDENTIAL')} style={dropdownItemStyle}><Stamp size={13} color="#ef4444" /> CONFIDENTIAL Stamp</button>
+                  <button onClick={() => addStamp('DRAFT')} style={dropdownItemStyle}><Stamp size={13} color="#0284c7" /> DRAFT Stamp</button>
+                  <button onClick={() => addStamp('SIGN')} style={dropdownItemStyle}><Stamp size={13} color="#f59e0b" /> SIGN HERE Stamp</button>
+                  <button onClick={() => addStamp('COMPLETED')} style={dropdownItemStyle}><Stamp size={13} color="#8b5cf6" /> COMPLETED Stamp</button>
                 </div>
-                <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}><Link size={13} /> Link</button>
-                <span style={fluentGroupCaptionStyle}>Illustrations</span>
-              </div>
-
+              )}
             </div>
-          )}
 
-          {/* TAB 3: ANNOTATE & SECURITY */}
-          {fluentTab === 'annotate' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-              
-              <div style={fluentGroupStyle(borderCol)}>
-                <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
-                  <ShieldAlert size={13} /> Redact
-                </button>
-                {pendingRedactionsCount > 0 && (
-                  <button title="Apply Redactions" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
-                    <CheckSquare size={13} /> Apply ({pendingRedactionsCount})
-                  </button>
-                )}
-                <span style={fluentGroupCaptionStyle}>Security</span>
-              </div>
-
-              <div style={fluentGroupStyle(borderCol)}>
-                <button title="Flatten PDF (Bake Annotation Layer)" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
-                  <Lock size={13} /> Flatten PDF
-                </button>
-                <span style={fluentGroupCaptionStyle}>Structure</span>
-              </div>
-
-              <div style={fluentGroupStyle(borderCol)}>
-                <button title="Find & Replace with Reflow" onClick={handleFindAndReplaceWithReflow} style={prominentBtnStyle('#0284c7')}>
-                  <RefreshCw size={13} /> Find & Replace
-                </button>
-                <span style={fluentGroupCaptionStyle}>Parsing</span>
-              </div>
-
-              <div style={fluentGroupStyle(borderCol)}>
-                <div style={{ position: 'relative' }}>
-                  <button onClick={() => setActiveDropdown(activeDropdown === 'eraser' ? null : 'eraser')} style={prominentBtnStyle('#ea580c')}>
-                    <Eraser size={13} /> Eraser <ChevronDown size={11} />
-                  </button>
-                  {activeDropdown === 'eraser' && (
-                    <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                      <button onClick={addWhiteoutEraser} style={dropdownItemStyle}><Square size={13} /> Whiteout Cover Box</button>
-                      <button onClick={purgeVectorStrokes} style={{ ...dropdownItemStyle, color: '#ef4444' }}><Trash2 size={13} /> Vector Stroke Purge</button>
-                    </div>
-                  )}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setActiveDropdown(activeDropdown === 'shapes' ? null : 'shapes')} style={prominentBtnStyle('#7c3aed')}>
+                <Square size={14} /> Shapes <ChevronDown size={11} />
+              </button>
+              {activeDropdown === 'shapes' && (
+                <div style={dropdownMenuStyle(bgBar, borderCol)}>
+                  <button onClick={() => addShape('rect')} style={dropdownItemStyle}><Square size={13} /> Rectangle</button>
+                  <button onClick={() => addShape('ellipse')} style={dropdownItemStyle}><Circle size={13} /> Ellipse / Oval</button>
+                  <button onClick={() => addShape('line')} style={dropdownItemStyle}><Minus size={13} /> Line</button>
+                  <button onClick={() => addShape('arrow')} style={dropdownItemStyle}><MoveRight size={13} /> Arrow Connector</button>
+                  <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
+                  <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
+                  <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
                 </div>
-                <span style={fluentGroupCaptionStyle}>Clean Up</span>
-              </div>
-
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* TAB 4: PAGE & VIEW */}
-          {fluentTab === 'page' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-              
-              <div style={fluentGroupStyle(borderCol)}>
-                <button onClick={() => handleToggleFitMode('width')} style={fitModeBtnStyle(fitMode === 'width')}><MoveHorizontal size={12} /> Fit Width</button>
-                <button onClick={() => handleToggleFitMode('page')} style={fitModeBtnStyle(fitMode === 'page')}><Maximize2 size={12} /> Fit Page</button>
-                <span style={fluentGroupCaptionStyle}>Viewport Fit</span>
-              </div>
+        {activePortal === 'canvas' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={addText} style={prominentBtnStyle('#0284c7')}><Type size={13} /> Add Text</button>
+            <label style={prominentBtnStyle('#059669')}>
+              <ImageIcon size={13} /> Add Image
+              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+            </label>
+            <button onClick={saveProjectJson} style={prominentBtnStyle('#0284c7')}><Save size={13} /> Save JSON</button>
+            <label style={prominentBtnStyle('#0369a1')}>
+              <Upload size={13} /> Load JSON
+              <input type="file" accept=".json" onChange={loadProjectJson} style={{ display: 'none' }} />
+            </label>
+            <button onClick={exportCanvasToMp4} style={prominentBtnStyle('#8b5cf6')}><Play size={13} /> Render Canvas to MP4</button>
+          </div>
+        )}
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <button onClick={handlePageLayoutToggle} style={prominentBtnStyle('#475569')}><Layout size={13} /> Layout (Portrait/Landscape)</button>
-                <button onClick={handleManagePages} style={prominentBtnStyle('#475569')}><FileCog size={13} /> Manage Pages</button>
-                <button onClick={handleCropTool} style={prominentBtnStyle('#475569')}><Crop size={13} /> Crop</button>
-                <span style={fluentGroupCaptionStyle}>Page Layout</span>
-              </div>
+        {activePortal === 'image' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '11px' }}>Brightness: {imgBrightness}</span>
+            <input type="range" min="0.5" max="2" step="0.1" value={imgBrightness} onChange={(e) => setImgBrightness(e.target.value)} />
+            <span style={{ fontSize: '11px' }}>Blur: {imgBlur}</span>
+            <input type="range" min="0" max="10" step="0.5" value={imgBlur} onChange={(e) => setImgBlur(e.target.value)} />
+            <label style={prominentBtnStyle('#0284c7')}>
+              <Sliders size={13} /> Upload & Fine-Tune Image
+              <input type="file" accept="image/*" onChange={handleImageFineTune} style={{ display: 'none' }} />
+            </label>
+          </div>
+        )}
 
-            </div>
-          )}
+        {activePortal === 'video' && (
+          <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Stitch Audio & Video Tracks:</span>
+            <input type="file" name="video" accept="video/*" required style={{ fontSize: '10px' }} />
+            <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '10px' }} />
+            <button type="submit" style={prominentBtnStyle('#8b5cf6')}><Music size={13} /> Stitch Tracks</button>
+          </form>
+        )}
 
-          {/* TAB 5: MEDIA & AI */}
-          {fluentTab === 'media' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
-              
-              <div style={fluentGroupStyle(borderCol)}>
-                <button onClick={() => setActivePortal('video')} style={prominentBtnStyle('#8b5cf6')}><Video size={13} /> Video Studio Portal</button>
-                <button onClick={exportCanvasToMp4} style={prominentBtnStyle('#8b5cf6')}><Play size={13} /> Render Canvas MP4</button>
-                <span style={{ fontSize: '9px', color: '#94a3b8', textAlign: 'center' }}>Video Rendering</span>
-              </div>
+        {activePortal === 'transcribe' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={prominentBtnStyle('#ec4899')}>
+              <Mic size={13} /> Transcribe Media to Canvas
+              <input type="file" accept="audio/*,video/*" onChange={handleTranscription} style={{ display: 'none' }} />
+            </label>
+            <label style={prominentBtnStyle('#d946ef')}>
+              <Captions size={13} /> Auto-Subtitle Video (MP4)
+              <input type="file" accept="video/*" onChange={handleAutoSubtitleVideo} style={{ display: 'none' }} />
+            </label>
+          </div>
+        )}
 
-              <div style={fluentGroupStyle(borderCol)}>
-                <label style={prominentBtnStyle('#ec4899')}>
-                  <Mic size={13} /> Transcribe Media
-                  <input type="file" accept="audio/*,video/*" onChange={handleTranscription} style={{ display: 'none' }} />
-                </label>
-                <label style={prominentBtnStyle('#d946ef')}>
-                  <Captions size={13} /> Auto-Subtitle Video
-                  <input type="file" accept="video/*" onChange={handleAutoSubtitleVideo} style={{ display: 'none' }} />
-                </label>
-                <span style={fluentGroupCaptionStyle}>Whisper AI</span>
-              </div>
-
-            </div>
-          )}
-
-        </div>
       </div>
 
-      {/* 3. COMPREHENSIVE TYPOGRAPHY & TEXT INSPECTOR BAR */}
-      <div style={{ minHeight: '36px', height: 'auto', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', flexWrap: 'wrap', alignItems: 'center', padding: '4px 10px', gap: '6px 8px', zIndex: 25, boxSizing: 'border-box' }}>
+      {/* 3. TEXT FORMATTING INSPECTOR BAR */}
+      <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
         {activeEditingObject && (
-          <button onClick={exitTextEditing} style={prominentBtnStyle('#ef4444')}><LogOut size={12} /> Exit Text Box / Done</button>
+          <button 
+            onClick={exitTextEditing} 
+            title="Exit Text Box Editing Focus" 
+            style={prominentBtnStyle('#ef4444')}
+          >
+            <LogOut size={12} /> Exit Text Box / Done
+          </button>
         )}
 
-        {/* TYPOGRAPHY SUITE */}
+        {/* ALL AVAILABLE GOOGLE FONTS DROPDOWN */}
         <select 
           value={fontFamilyVal} 
           onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
-          style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
+          style={{ padding: '2px 6px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
         >
-          <optgroup label="Sans-Serif">
+          <optgroup label="Modern Sans-Serif">
             <option value="Arial">Arial</option>
+            <option value="Inter">Inter</option>
+            <option value="Roboto">Roboto</option>
+            <option value="Montserrat">Montserrat</option>
+            <option value="Poppins">Poppins</option>
+            <option value="Open Sans">Open Sans</option>
+            <option value="Lato">Lato</option>
+            <option value="Nunito">Nunito</option>
+            <option value="Raleway">Raleway</option>
             <option value="Helvetica">Helvetica</option>
-            <option value="Trebuchet MS">Trebuchet MS</option>
-            <option value="Verdana">Verdana</option>
-            <option value="Tahoma">Tahoma</option>
           </optgroup>
-          <optgroup label="Serif">
+          
+          <optgroup label="Classic Serif">
             <option value="Times New Roman">Times New Roman</option>
+            <option value="Playfair Display">Playfair Display</option>
+            <option value="Merriweather">Merriweather</option>
+            <option value="Lora">Lora</option>
             <option value="Georgia">Georgia</option>
+            <option value="Cinzel">Cinzel</option>
+            <option value="Cormorant Garamond">Cormorant Garamond</option>
             <option value="Garamond">Garamond</option>
-            <option value="Palatino">Palatino</option>
           </optgroup>
-          <optgroup label="Monospace">
-            <option value="Courier New">Courier New</option>
-            <option value="Consolas">Consolas</option>
+
+          <optgroup label="Handwriting & Cursive">
+            <option value="Pacifico">Pacifico</option>
+            <option value="Dancing Script">Dancing Script</option>
+            <option value="Caveat">Caveat</option>
+            <option value="Great Vibes">Great Vibes</option>
+            <option value="Satisfy">Satisfy</option>
+            <option value="Permanent Marker">Permanent Marker</option>
+            <option value="Sacramento">Sacramento</option>
+            <option value="Courgette">Courgette</option>
           </optgroup>
-          <optgroup label="Display & Cursive">
+
+          <optgroup label="Display & Heavy Impact">
             <option value="Impact">Impact</option>
-            <option value="Comic Sans MS">Comic Sans MS</option>
-            <option value="Brush Script MT">Brush Script</option>
+            <option value="Bebas Neue">Bebas Neue</option>
+            <option value="Anton">Anton</option>
+            <option value="Oswald">Oswald</option>
+            <option value="Lobster">Lobster</option>
+            <option value="Bungee">Bungee</option>
+            <option value="Orbitron">Orbitron</option>
+            <option value="Bangers">Bangers</option>
+            <option value="Press Start 2P">Press Start 2P (Retro 8-Bit)</option>
+          </optgroup>
+
+          <optgroup label="Coding & Monospace">
+            <option value="Courier New">Courier New</option>
+            <option value="Fira Code">Fira Code</option>
+            <option value="JetBrains Mono">JetBrains Mono</option>
+            <option value="Source Code Pro">Source Code Pro</option>
+            <option value="Consolas">Consolas</option>
           </optgroup>
         </select>
 
-        {/* Font Size */}
         <input 
-          type="number" min="8" max="120" value={fontSizeVal} 
+          type="number" 
+          min="8" 
+          max="120" 
+          value={fontSizeVal} 
           onChange={(e) => { setFontSizeVal(Number(e.target.value)); updateActiveTextProp('fontSize', Number(e.target.value)); }}
-          style={{ width: '42px', padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
-          title="Font Size"
+          style={{ width: '45px', padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
         />
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Formatting Toggles */}
         <button onClick={() => { const next = !isBoldVal; setIsBoldVal(next); updateActiveTextProp('fontWeight', next ? 'bold' : 'normal'); }} style={inspectorToggleBtnStyle(isBoldVal)}><b>B</b></button>
         <button onClick={() => { const next = !isItalicVal; setIsItalicVal(next); updateActiveTextProp('fontStyle', next ? 'italic' : 'normal'); }} style={inspectorToggleBtnStyle(isItalicVal)}><i>I</i></button>
         <button onClick={() => { const next = !isUnderlineVal; setIsUnderlineVal(next); updateActiveTextProp('underline', next); }} style={inspectorToggleBtnStyle(isUnderlineVal)}><u>U</u></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Case Converters */}
-        <button title="UPPERCASE" onClick={() => changeTextCase('upper')} style={inspectorToggleBtnStyle(false)}><CaseUpper size={13} /></button>
-        <button title="lowercase" onClick={() => changeTextCase('lower')} style={inspectorToggleBtnStyle(false)}><CaseLower size={13} /></button>
+        {/* TEXT EFFECT BUTTONS: SHADOW & STROKE OUTLINE */}
+        <button title="Apply Text Drop Shadow" onClick={() => applyTextShadow('#000000', 8)} style={inspectorToggleBtnStyle(false)}>Shadow</button>
+        <button title="Apply Text Outline Stroke" onClick={() => applyTextStroke('#000000', 2)} style={inspectorToggleBtnStyle(false)}>Outline</button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Alignment */}
         <button title="Align Left" onClick={() => { setTextAlignVal('left'); updateActiveTextProp('textAlign', 'left'); }} style={inspectorToggleBtnStyle(textAlignVal === 'left')}><AlignLeft size={13} /></button>
         <button title="Align Center" onClick={() => { setTextAlignVal('center'); updateActiveTextProp('textAlign', 'center'); }} style={inspectorToggleBtnStyle(textAlignVal === 'center')}><AlignCenter size={13} /></button>
         <button title="Align Right" onClick={() => { setTextAlignVal('right'); updateActiveTextProp('textAlign', 'right'); }} style={inspectorToggleBtnStyle(textAlignVal === 'right')}><AlignRight size={13} /></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        {/* Line Height */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Line Height Spacing">
-          Line Spacing:
-          <input type="number" min="0.8" max="3.0" step="0.1" value={lineHeightVal} onChange={(e) => { setLineHeightVal(Number(e.target.value)); updateActiveTextProp('lineHeight', Number(e.target.value)); }} style={{ width: '40px', padding: '1px 3px', fontSize: '10px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }} />
-        </label>
-
-        {/* Character Spacing */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Character Spacing / Kerning">
-          Kerning:
-          <input type="number" min="-50" max="500" step="10" value={charSpacingVal} onChange={(e) => { setCharSpacingVal(Number(e.target.value)); updateActiveTextProp('charSpacing', Number(e.target.value)); }} style={{ width: '42px', padding: '1px 3px', fontSize: '10px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }} />
-        </label>
-
-        <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
-
-        {/* Font Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Font Color:
           <input 
             type="color" 
             value={ensureValidHexColor(textColorVal, '#0f172a')} 
             onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} 
-            style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+            style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
           />
         </label>
 
-        {/* Background Color */}
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           BG Color:
           <input 
             type="color" 
             value={ensureValidHexColor(textBgColorVal, '#ffffff')} 
             onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} 
-            style={{ width: '18px', height: '18px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+            style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
           />
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          Opacity:
+          <input type="range" min="0.1" max="1" step="0.05" value={textOpacityVal} onChange={(e) => { setTextOpacityVal(Number(e.target.value)); updateActiveTextProp('opacity', Number(e.target.value)); }} style={{ width: '50px', cursor: 'pointer', accentColor: '#0284c7' }} />
         </label>
       </div>
 
       {/* 4. MAIN ISOLATED PORTAL WORKSPACE */}
       <div className="custom-scroll" style={{ display: 'flex', flex: 1, overflowY: 'auto', boxSizing: 'border-box' }}>
 
-        {/* --- PORTAL TYPE A: PDF DOCUMENT / CANVAS / IMAGE / TRANSCRIBE PORTAL --- */}
+        {/* --- PORTAL TYPE A: PDF DOCUMENT PORTAL --- */}
         {(activePortal === 'pdf' || activePortal === 'canvas' || activePortal === 'image' || activePortal === 'transcribe') && (
           <div style={{ display: 'flex', width: '100%', minHeight: '100%' }}>
             {activePortal === 'pdf' && (
@@ -1646,86 +2041,102 @@ export default function CanvasStudio() {
               </div>
             )}
 
-            <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', boxSizing: 'border-box' }}>
-              <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-                
-                {/* DYNAMIC ZOOM FIT TOOLBAR */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
-                  <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
-                  <span style={{ fontSize: '11px', fontWeight: 'bold', width: '38px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
-                  <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
-                  
-                  <div style={{ width: '1px', height: '14px', backgroundColor: borderCol, margin: '0 2px' }} />
-
-                  <button title="Fit to Width (page-width)" onClick={() => handleToggleFitMode('width')} style={fitModeBtnStyle(fitMode === 'width')}>
-                    <MoveHorizontal size={12} /> Fit Width
-                  </button>
-
-                  <button title="Fit to Page (page-fit)" onClick={() => handleToggleFitMode('page')} style={fitModeBtnStyle(fitMode === 'page')}>
-                    <Maximize2 size={12} /> Fit Page
-                  </button>
-
-                  <button title="Reset Zoom" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '2px' }}>100%</button>
+            <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: '16px', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+                    <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+                    <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
+                    <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+                  </div>
                 </div>
+
+                {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
+                <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+                  
+                  {activeEditingObject && (
+                    <button 
+                      onClick={exitTextEditing}
+                      style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        backgroundColor: '#ef4444',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        zIndex: 100,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                      }}
+                      title="Exit Text Editing Session & Deselect"
+                    >
+                      <X size={12} /> Close Text Box
+                    </button>
+                  )}
+
+                  <canvas ref={canvasRef} />
+                </div>
+
+                {transcriptionText && (
+                  <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px' }}>
+                    <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
+                    <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
+                  </div>
+                )}
               </div>
 
-              {/* CANVAS CONTAINER */}
-              <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
-                
-                {activeEditingObject && (
-                  <button 
-                    onClick={exitTextEditing}
-                    style={{
-                      position: 'absolute',
-                      top: '10px',
-                      right: '10px',
-                      backgroundColor: '#ef4444',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '4px 8px',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      zIndex: 100,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                    }}
-                    title="Exit Text Editing Session & Deselect"
-                  >
-                    <X size={12} /> Close Text Box
-                  </button>
+              {/* VISUAL LAYERS MANAGER PANEL SIDEBAR */}
+              <div style={{ width: '200px', minWidth: '200px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Layers size={14} /> Layers Stack ({canvasLayers.length})
+                </span>
+
+                {canvasLayers.length === 0 && (
+                  <p style={{ fontSize: '10px', color: '#94a3b8' }}>No layers on canvas yet. Add text, shapes, or images.</p>
                 )}
 
-                <canvas ref={canvasRef} />
-              </div>
+                {canvasLayers.map((obj, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => { fabricCanvas.setActiveObject(obj); fabricCanvas.renderAll(); }}
+                    style={{
+                      padding: '6px 8px',
+                      backgroundColor: fabricCanvas?.getActiveObject() === obj ? 'rgba(2, 132, 199, 0.15)' : 'transparent',
+                      border: `1px solid ${fabricCanvas?.getActiveObject() === obj ? '#0284c7' : borderCol}`,
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85px' }}>
+                      {obj.text ? `"${obj.text.substring(0, 10)}..."` : (obj.type || 'Layer')}
+                    </span>
 
-              {/* INTERACTIVE AI TRANSCRIPT EDITOR (IN TRANSCRIBE PORTAL) */}
-              {activePortal === 'transcribe' && (
-                <div style={{ width: '820px', marginTop: '12px' }}>
-                  <TranscriptEditor 
-                    segments={transcriptSegments}
-                    currentTime={timelineSec}
-                    onSeek={(time) => {
-                      setTimelineSec(time);
-                      if (videoRef.current) videoRef.current.currentTime = time;
-                    }}
-                    onTranscriptChange={(id, newText) => {
-                      setTranscriptSegments((prev) => 
-                        prev.map((seg) => seg.id === id ? { ...seg, text: newText } : seg)
-                      );
-                      setTranscriptionText((prev) => 
-                        transcriptSegments.map((seg) => seg.id === id ? newText : seg.text).join(' ')
-                      );
-                      setStatus(`Updated transcript segment text!`);
-                    }}
-                    darkMode={darkMode}
-                  />
-                </div>
-              )}
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      <button title="Bring to Front" onClick={(e) => { e.stopPropagation(); bringLayerToFront(obj); }} style={miniLayerBtnStyle}>↑</button>
+                      <button title="Send to Back" onClick={(e) => { e.stopPropagation(); sendLayerToBack(obj); }} style={miniLayerBtnStyle}>↓</button>
+                      <button title="Lock / Unlock" onClick={(e) => { e.stopPropagation(); toggleLayerLock(obj); }} style={miniLayerBtnStyle}>
+                        {obj.selectable === false ? <Lock size={10} color="#f59e0b" /> : <Unlock size={10} />}
+                      </button>
+                      <button title="Show / Hide" onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(obj); }} style={miniLayerBtnStyle}>
+                        {obj.visible === false ? <EyeOff size={10} color="#ef4444" /> : <Eye size={10} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
             </div>
           </div>
@@ -1764,7 +2175,6 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* TIMELINE EDITOR TRACKS */}
               <TimelineEditor 
                 tracks={[
                   { id: 't1', name: 'Video Track 1', type: 'video', isMuted: false, isLocked: false },
@@ -1778,68 +2188,56 @@ export default function CanvasStudio() {
                 isPlaying={isPlaying}
                 onPlayPauseToggle={togglePlayPause}
                 onScrub={handleTimelineScrub}
-                onClipUpdate={(updatedClips) => setClips(updatedClips)}
                 darkMode={darkMode}
               />
-
-              {/* INTERACTIVE AI TRANSCRIPT EDITOR (IN VIDEO PORTAL) */}
-              <TranscriptEditor 
-                segments={transcriptSegments}
-                currentTime={timelineSec}
-                onSeek={(time) => {
-                  setTimelineSec(time);
-                  if (videoRef.current) videoRef.current.currentTime = time;
-                }}
-                onTranscriptChange={(id, newText) => {
-                  setTranscriptSegments((prev) => 
-                    prev.map((seg) => seg.id === id ? { ...seg, text: newText } : seg)
-                  );
-                  setTranscriptionText((prev) => 
-                    transcriptSegments.map((seg) => seg.id === id ? newText : seg.text).join(' ')
-                  );
-                  setStatus(`Updated transcript segment text!`);
-                }}
-                darkMode={darkMode}
-              />
-
             </div>
           </div>
         )}
 
       </div>
 
+      {/* RECENT PROJECTS RESTORER MODAL */}
+      {showProjectsModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '420px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, borderRadius: '8px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', color: textColor }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 'bold' }}>📂 Open Recent Project</h3>
+              <button onClick={() => setShowProjectsModal(false)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
+              {recentProjects.length === 0 && <p style={{ fontSize: '12px', color: '#94a3b8' }}>No saved projects found in local history.</p>}
+              {recentProjects.map((proj) => (
+                <div 
+                  key={proj.id}
+                  onClick={() => restoreRecentProject(proj)}
+                  style={{ padding: '10px', backgroundColor: darkMode ? '#0f172a' : '#f8fafc', border: `1px solid ${borderCol}`, borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold' }}>{proj.title}</div>
+                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>{proj.timestamp}</div>
+                  </div>
+                  <button style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', fontSize: '11px', cursor: 'pointer' }}>Restore</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
 
-// Fluent UI Helper Styles
-const fluentTabBtnStyle = (active, dark) => ({
-  padding: '4px 12px',
-  backgroundColor: active ? (dark ? '#1e293b' : '#ffffff') : 'transparent',
-  color: active ? '#0284c7' : (dark ? '#94a3b8' : '#475569'),
+// Button & Helper Styles
+const miniLayerBtnStyle = {
+  background: 'transparent',
   border: 'none',
-  borderTopLeftRadius: '4px',
-  borderTopRightRadius: '4px',
-  fontWeight: active ? 'bold' : '500',
-  fontSize: '11px',
+  color: 'inherit',
   cursor: 'pointer',
-});
-
-const fluentGroupStyle = (border) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: '4px',
-  paddingRight: '8px',
-  borderRight: `1px solid ${border}`,
-});
-
-const fluentGroupCaptionStyle = {
-  fontSize: '9px',
-  color: '#94a3b8',
-  fontWeight: 'bold',
-  textTransform: 'uppercase',
-  letterSpacing: '0.5px',
+  padding: '2px 4px',
+  fontSize: '10px',
+  borderRadius: '2px',
 };
 
 const portalTabStyle = (active) => ({
@@ -1872,22 +2270,6 @@ const globalHeaderBtnStyle = {
   whiteSpace: 'nowrap',
 };
 
-const exportPdfHeaderBtnStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '4px',
-  padding: '3px 10px',
-  backgroundColor: '#8b5cf6',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: '3px',
-  cursor: 'pointer',
-  fontSize: '11px',
-  fontWeight: 'bold',
-  whiteSpace: 'nowrap',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-};
-
 const doneHeaderBtnStyle = {
   display: 'flex',
   alignItems: 'center',
@@ -1910,22 +2292,6 @@ const enableEditBtnStyle = {
   gap: '4px',
   padding: '3px 10px',
   backgroundColor: '#f59e0b',
-  color: '#ffffff',
-  border: 'none',
-  borderRadius: '3px',
-  cursor: 'pointer',
-  fontSize: '11px',
-  fontWeight: 'bold',
-  whiteSpace: 'nowrap',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-};
-
-const paystackHeaderBtnStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '4px',
-  padding: '3px 10px',
-  backgroundColor: '#059669', // Paystack Green Accent
   color: '#ffffff',
   border: 'none',
   borderRadius: '3px',
@@ -1975,20 +2341,6 @@ const inspectorToggleBtnStyle = (active) => ({
   borderRadius: '3px',
   cursor: 'pointer',
   fontSize: '11px',
-});
-
-const fitModeBtnStyle = (active) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '3px',
-  padding: '2px 6px',
-  backgroundColor: active ? '#0284c7' : 'transparent',
-  color: active ? '#ffffff' : 'inherit',
-  border: '1px solid #334155',
-  borderRadius: '3px',
-  cursor: 'pointer',
-  fontSize: '10px',
-  fontWeight: 'bold',
 });
 
 const dropdownMenuStyle = (bg, border) => ({

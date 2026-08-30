@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
+import LandingPage from './LandingPage';
 import CanvasStudio from './CanvasStudio';
 
-function App() {
-  return <CanvasStudio />;
-}
+export default function App() {
+  const [currentView, setCurrentView] = useState('landing'); // 'landing' | 'studio'
 
-export default App;
+  return (
+    <div>
+      {currentView === 'landing' ? (
+        <LandingPage onLaunchStudio={() => setCurrentView('studio')} />
+      ) : (
+        <CanvasStudio onBackToHome={() => setCurrentView('landing')} />
+      )}
+    </div>
+  );
+}
