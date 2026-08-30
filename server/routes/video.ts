@@ -202,6 +202,74 @@ router.post('/tts', async (req: any, res: any) => {
   }
 });
 
+/**
+ * 5. POST /api/video/effects
+ * Applies Green Screen Chroma Keying, Speed Ramping, and Color Grading via FFmpeg.
+ */
+router.post('/effects', upload.single('video'), async (req: any, res: any) => {
+  if (!req.file) return res.status(400).json({ error: 'No video file provided.' });
+
+  const videoPath = req.file.path;
+  const { 
+    chromaKey = 'false', // 'true' | 'false'
+    keyColor = '0x00FF00', // Green hex
+    speed = '1.0',       // 0.5, 1.0, 1.5, 2.0
+    contrast = '1.0',    // 0.5 to 2.0
+    saturation = '1.0'   // 0.0 to 2.0
+  } = req.body;
+
+  const outputFileName = `effects_${Date.now()}.mp4`;
+  const outputPath = path.join(outputDir, outputFileName);
+
+  try {
+    const filters: string[] = [];
+
+    // 1. Chroma Key (Green Screen Removal)
+    if (chromaKey === 'true') {
+      filters.push(`chromakey=${keyColor}:0.1:0.2`);
+    }
+
+    // 2. Speed Adjustment (setpts for video)
+    const speedVal = parseFloat(speed) || 1.0;
+    if (speedVal !== 1.0) {
+      const ptsFactor = (1 / speedVal).toFixed(2);
+      filters.push(`setpts=${ptsFactor}*PTS`);
+    }
+
+    // 3. Color Grading (Equalizer)
+    const contrastVal = parseFloat(contrast) || 1.0;
+    const saturationVal = parseFloat(saturation) || 1.0;
+    if (contrastVal !== 1.0 || saturationVal !== 1.0) {
+      filters.push(`eq=contrast=${contrastVal}:saturation=${saturationVal}`);
+    }
+
+    let ffmpegCommand = ffmpeg(videoPath);
+
+    if (filters.length > 0) {
+      ffmpegCommand = ffmpegCommand.outputOptions([`-vf ${filters.join(',')}`]);
+    }
+
+    ffmpegCommand
+      .output(outputPath)
+      .on('end', () => {
+        cleanupFile(videoPath);
+        res.json({
+          success: true,
+          file: outputFileName,
+          appliedEffects: { chromaKey, speed, contrast, saturation }
+        });
+      })
+      .on('error', (err) => {
+        cleanupFile(videoPath);
+        res.status(500).json({ error: 'Video effects processing failed', details: err.message });
+      })
+      .run();
+  } catch (err: any) {
+    cleanupFile(videoPath);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function formatSrtTime(seconds: number): string {
   const pad = (n: number, z = 2) => ('00' + n).slice(-z);
   const hrs = Math.floor(seconds / 3600);
