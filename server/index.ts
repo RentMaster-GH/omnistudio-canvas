@@ -42,7 +42,7 @@ app.use(['/api/video', '/video'], videoRoutes);
 const handlePaystackInit = async (req: any, res: any) => {
   try {
     const { userId, email, currency = 'USD' } = req.body;
-    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_live_d96ea8cd0408fc378c636d1c64a06c8c954266fa';
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_placeholder';
 
     if (!email) {
       return res.status(400).json({ error: 'User email is required for Paystack checkout.' });
