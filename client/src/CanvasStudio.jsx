@@ -20,9 +20,10 @@ import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
+// NEW (Points to Vercel Serverless API):
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
-  : 'https://omnistudio-canvas-api.onrender.com/api';
+  : '/api';
 
 /**
  * Helper: Guarantees a strict 7-character #RRGGBB hex string to prevent 
