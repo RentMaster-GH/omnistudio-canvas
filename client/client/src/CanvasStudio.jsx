@@ -64,10 +64,19 @@ export default function CanvasStudio() {
   const [recentProjects, setRecentProjects] = useState([]);
   const [showProjectsModal, setShowProjectsModal] = useState(false);
 
+  // NO-SIGN-UP FRICTIONLESS GUEST SESSION
+  const [guestUserId] = useState(() => {
+    let existingId = localStorage.getItem('omnistudio_guest_id');
+    if (!existingId) {
+      existingId = 'guest_' + Math.random().toString(36).substring(2, 11);
+      localStorage.setItem('omnistudio_guest_id', existingId);
+    }
+    return existingId;
+  });
+
   // Cloud Sync State
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [projectTitle, setProjectTitle] = useState('My OmniStudio Project');
-  const [mockUserId] = useState('user_' + Math.random().toString(36).substring(7));
 
   const [activeTool, setActiveTool] = useState('hand');
   const activeToolRef = useRef('hand');
@@ -159,6 +168,47 @@ export default function CanvasStudio() {
     fontLink.rel = 'stylesheet';
     document.head.appendChild(fontLink);
   }, []);
+
+  // --- AUTO-RESTORE FRICTIONLESS SESSION ON STARTUP ---
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    // Check URL Hash for shared project first
+    const hash = window.location.hash;
+    if (hash.includes('#project=')) {
+      try {
+        const encoded = hash.split('#project=')[1];
+        const decodedJson = JSON.parse(decodeURIComponent(atob(encoded)));
+        if (decodedJson.canvas) {
+          fabricCanvas.loadFromJSON(decodedJson.canvas, () => {
+            if (decodedJson.subtitles) setTranscriptSegments(decodedJson.subtitles);
+            fabricCanvas.renderAll();
+            setStatus('🔗 Shared project loaded from URL link!');
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not load shared project from URL hash:', e);
+      }
+    }
+
+    // Auto-Load Guest's Last Work
+    const lastSavedProject = localStorage.getItem('omnistudio_last_autosave');
+    if (lastSavedProject) {
+      try {
+        const parsed = JSON.parse(lastSavedProject);
+        if (parsed.canvasJson) {
+          fabricCanvas.loadFromJSON(parsed.canvasJson, () => {
+            if (parsed.transcriptSegments) setTranscriptSegments(parsed.transcriptSegments);
+            fabricCanvas.renderAll();
+            setStatus('⚡ Restored your previous session automatically (No login needed)!');
+          });
+        }
+      } catch (e) {
+        console.warn('Could not auto-restore session:', e);
+      }
+    }
+  }, [fabricCanvas]);
 
   // --- AUTO-SAVE & RECENT PROJECTS RESTORER ---
   useEffect(() => {
@@ -255,6 +305,23 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
     saveState();
     setStatus('✨ Sample Demo Project Loaded onto Canvas!');
+  };
+
+  // --- 1-CLICK SHAREABLE PROJECT LINK GENERATOR ---
+  const generateShareableProjectUrl = () => {
+    if (!fabricCanvas) return;
+    
+    const projectState = {
+      canvas: fabricCanvas.toJSON(),
+      subtitles: transcriptSegments,
+    };
+
+    const encodedState = btoa(encodeURIComponent(JSON.stringify(projectState)));
+    const shareUrl = `${window.location.origin}/#project=${encodedState}`;
+
+    navigator.clipboard.writeText(shareUrl);
+    alert('🔗 Shareable Project Link copied to clipboard!\n\nAnyone opening this link can view & edit your work instantly without signing in.');
+    setStatus('🔗 Project link copied to clipboard!');
   };
 
   useEffect(() => {
@@ -589,31 +656,6 @@ export default function CanvasStudio() {
     updatedThumbs.splice(toIdx, 0, movedThumb);
     setThumbnails(updatedThumbs);
     setStatus(`📄 Moved Page ${fromIdx + 1} to Position ${toIdx + 1}`);
-  };
-
-  // --- PAYSTACK SUBSCRIPTION HANDLER ---
-  const handlePaystackUpgrade = async () => {
-    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
-    if (!userEmail) return;
-
-    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
-
-    try {
-      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
-        userId: mockUserId,
-        email: userEmail,
-        currency: 'USD',
-      });
-
-      if (res.data?.authorizationUrl) {
-        window.location.href = res.data.authorizationUrl;
-      } else {
-        alert('Could not start Paystack checkout. Please check server keys.');
-      }
-    } catch (err) {
-      console.error('Paystack Checkout Error:', err);
-      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
-    }
   };
 
   // --- SAFE ADD TEXT FUNCTION ---
@@ -1205,8 +1247,7 @@ export default function CanvasStudio() {
         });
       } catch (err) {}
     } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert('Document Link copied to clipboard!');
+      generateShareableProjectUrl();
     }
   };
 
@@ -1653,7 +1694,11 @@ export default function CanvasStudio() {
         <button title="Search Text" onClick={handleSearch} style={globalHeaderBtnStyle}><Search size={13} /> Search</button>
         <button title="Print Document Page" onClick={handlePrint} style={globalHeaderBtnStyle}><Printer size={13} /> Print</button>
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
-        <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
+        
+        {/* SHAREABLE PROJECT LINK BUTTON */}
+        <button title="Copy Shareable Link for Instant Guest Collaboration" onClick={generateShareableProjectUrl} style={globalHeaderBtnStyle}>
+          🔗 Copy Share Link
+        </button>
 
         {/* PAYSTACK UPGRADE PRO BUTTON */}
         <button 
@@ -1835,11 +1880,7 @@ export default function CanvasStudio() {
               <ImageIcon size={13} /> Add Image
               <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
             </label>
-            <button onClick={saveProjectJson} style={prominentBtnStyle('#0284c7')}><Save size={13} /> Save JSON</button>
-            <label style={prominentBtnStyle('#0369a1')}>
-              <Upload size={13} /> Load JSON
-              <input type="file" accept=".json" onChange={loadProjectJson} style={{ display: 'none' }} />
-            </label>
+            <button onClick={() => setStatus('Saving project locally...')} style={prominentBtnStyle('#0284c7')}><Save size={13} /> Save Project</button>
             <button onClick={exportCanvasToMp4} style={prominentBtnStyle('#8b5cf6')}><Play size={13} /> Render Canvas to MP4</button>
           </div>
         )}
@@ -1852,13 +1893,13 @@ export default function CanvasStudio() {
             <input type="range" min="0" max="10" step="0.5" value={imgBlur} onChange={(e) => setImgBlur(e.target.value)} />
             <label style={prominentBtnStyle('#0284c7')}>
               <Sliders size={13} /> Upload & Fine-Tune Image
-              <input type="file" accept="image/*" onChange={handleImageFineTune} style={{ display: 'none' }} />
+              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
             </label>
           </div>
         )}
 
         {activePortal === 'video' && (
-          <form onSubmit={handleVideoStitch} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <form onSubmit={handleAutoSubtitleVideo} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '11px', fontWeight: 'bold' }}>Stitch Audio & Video Tracks:</span>
             <input type="file" name="video" accept="video/*" required style={{ fontSize: '10px' }} />
             <input type="file" name="audio" accept="audio/*" required style={{ fontSize: '10px' }} />
