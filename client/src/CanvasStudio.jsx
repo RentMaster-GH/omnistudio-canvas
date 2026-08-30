@@ -81,13 +81,13 @@ class StudioErrorBoundary extends Component {
   }
 }
 
-// MAIN STUDIO FUNCTION (NO DUPLICATE DEFAULT EXPORT HERE)
 function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
   const copiedObjectRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
+  const [fluentTab, setFluentTab] = useState('home');
   const [activePortal, setActivePortal] = useState('pdf');
   
   const [darkMode, setDarkMode] = useState(true);
@@ -102,6 +102,10 @@ function CanvasStudio() {
   // Layers Manager State (Plain Metadata Array)
   const [canvasLayers, setCanvasLayers] = useState([]);
 
+  // Auto-Save & Recent Projects State
+  const [recentProjects, setRecentProjects] = useState([]);
+  const [showProjectsModal, setShowProjectsModal] = useState(false);
+
   // NO-SIGN-UP FRICTIONLESS GUEST SESSION
   const [guestUserId] = useState(() => {
     let existingId = localStorage.getItem('omnistudio_guest_id');
@@ -111,6 +115,9 @@ function CanvasStudio() {
     }
     return existingId;
   });
+
+  const [currentProjectId] = useState(null);
+  const [projectTitle] = useState('My OmniStudio Project');
 
   const [activeTool, setActiveTool] = useState('hand');
   const activeToolRef = useRef('hand');
@@ -148,7 +155,7 @@ function CanvasStudio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
   const [videoDuration, setVideoDuration] = useState(30);
-  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas.');
+  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas. Your all-in-one editor for video, audio, and text.');
   
   const [transcriptSegments, setTranscriptSegments] = useState([
     {
@@ -162,7 +169,9 @@ function CanvasStudio() {
   ]);
 
   const [clips] = useState([
-    { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 }
+    { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
+    { id: 'c2', trackId: 't2', name: 'Background Audio.mp3', type: 'audio', timelineStart: 0, duration: 25 },
+    { id: 'c3', trackId: 't4', name: 'Whisper Subtitles', type: 'transcription', timelineStart: 2, duration: 10 }
   ]);
 
   const [imgBrightness, setImgBrightness] = useState(1);
@@ -178,6 +187,146 @@ function CanvasStudio() {
     fontLink.rel = 'stylesheet';
     document.head.appendChild(fontLink);
   }, []);
+
+  // --- AUTO-RESTORE SESSION & URL SHAREABLE LINK ---
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    const hash = window.location.hash;
+    if (hash.includes('#project=')) {
+      try {
+        const encoded = hash.split('#project=')[1];
+        const decodedJson = JSON.parse(decodeURIComponent(atob(encoded)));
+        if (decodedJson.canvas) {
+          fabricCanvas.loadFromJSON(decodedJson.canvas, () => {
+            if (decodedJson.subtitles) setTranscriptSegments(decodedJson.subtitles);
+            fabricCanvas.renderAll();
+            setStatus('🔗 Shared project loaded from URL link!');
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not load shared project from URL hash:', e);
+      }
+    }
+
+    const lastSavedProject = localStorage.getItem('omnistudio_last_autosave');
+    if (lastSavedProject) {
+      try {
+        const parsed = JSON.parse(lastSavedProject);
+        if (parsed.canvasJson) {
+          fabricCanvas.loadFromJSON(parsed.canvasJson, () => {
+            if (parsed.transcriptSegments) setTranscriptSegments(parsed.transcriptSegments);
+            fabricCanvas.renderAll();
+            setStatus('⚡ Restored your previous session automatically!');
+          });
+        }
+      } catch (e) {
+        console.warn('Could not auto-restore session:', e);
+      }
+    }
+  }, [fabricCanvas]);
+
+  // --- AUTO-SAVE & RECENT PROJECTS RESTORER ---
+  useEffect(() => {
+    const autoSaveInterval = setInterval(() => {
+      if (fabricCanvas) {
+        const projectData = {
+          id: currentProjectId || 'proj_' + Date.now(),
+          title: projectTitle || 'OmniStudio Project',
+          timestamp: new Date().toLocaleString(),
+          canvasJson: fabricCanvas.toJSON(),
+          transcriptSegments,
+        };
+
+        localStorage.setItem('omnistudio_last_autosave', JSON.stringify(projectData));
+        
+        const existing = JSON.parse(localStorage.getItem('omnistudio_recent_projects') || '[]');
+        const filtered = existing.filter((p) => p.id !== projectData.id);
+        const updatedList = [projectData, ...filtered].slice(0, 5);
+        
+        localStorage.setItem('omnistudio_recent_projects', JSON.stringify(updatedList));
+        setRecentProjects(updatedList);
+      }
+    }, 30000);
+
+    return () => clearInterval(autoSaveInterval);
+  }, [fabricCanvas, currentProjectId, projectTitle, transcriptSegments]);
+
+  const restoreRecentProject = (proj) => {
+    if (!fabricCanvas || !proj) return;
+    fabricCanvas.loadFromJSON(proj.canvasJson, () => {
+      if (proj.transcriptSegments) setTranscriptSegments(proj.transcriptSegments);
+      fabricCanvas.renderAll();
+      setShowProjectsModal(false);
+      setStatus(`📂 Restored project: ${proj.title}`);
+    });
+  };
+
+  // --- SAMPLE DEMO PROJECT LOADER ---
+  const loadSampleDemo = () => {
+    if (!fabricCanvas) return;
+
+    fabricCanvas.clear();
+
+    const ITextClass = getFabricIText();
+    if (ITextClass) {
+      const titleText = new ITextClass('OmniStudio Canvas Sample Demo', {
+        left: 80,
+        top: 60,
+        fontSize: 28,
+        fontFamily: 'Roboto',
+        fontWeight: 'bold',
+        fill: '#0284c7',
+      });
+      fabricCanvas.add(titleText);
+    }
+
+    const stampText = new fabric.Text('APPROVED', { fontSize: 20, fontWeight: 'bold', fill: '#10b981', left: 15, top: 10 });
+    const stampRect = new fabric.Rect({ width: stampText.width + 30, height: stampText.height + 20, fill: 'rgba(255, 255, 255, 0.9)', stroke: '#10b981', strokeWidth: 3, rx: 6, ry: 6 });
+    const stampGroup = new fabric.Group([stampRect, stampText], { left: 520, top: 80, angle: -12 });
+
+    const shape = new fabric.Rect({ left: 80, top: 180, width: 220, height: 120, fill: 'rgba(2, 132, 199, 0.1)', stroke: '#0284c7', strokeWidth: 2, rx: 8, ry: 8 });
+
+    fabricCanvas.add(stampGroup, shape);
+
+    setTranscriptionText('Welcome to OmniStudio Canvas. Edit text, video tracks, and subtitles seamlessly.');
+    setTranscriptSegments([
+      {
+        id: 'demo-1',
+        speaker: 'Speaker 1',
+        text: 'Welcome to OmniStudio Canvas.',
+        start: 0,
+        end: 2.5,
+        words: [{ id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 }]
+      }
+    ]);
+
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('✨ Sample Demo Project Loaded onto Canvas!');
+  };
+
+  // --- 1-CLICK SHAREABLE PROJECT LINK GENERATOR ---
+  const generateShareableProjectUrl = () => {
+    if (!fabricCanvas) return;
+    
+    const projectState = {
+      canvas: fabricCanvas.toJSON(),
+      subtitles: transcriptSegments,
+    };
+
+    const encodedState = btoa(encodeURIComponent(JSON.stringify(projectState)));
+    const shareUrl = `${window.location.origin}/#project=${encodedState}`;
+
+    navigator.clipboard.writeText(shareUrl);
+    alert('🔗 Shareable Project Link copied to clipboard!\n\nAnyone opening this link can view & edit your work instantly without signing in.');
+    setStatus('🔗 Project link copied to clipboard!');
+  };
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
 
   // UNIVERSAL FABRIC CANVAS INITIALIZATION
   useEffect(() => {
@@ -279,6 +428,190 @@ function CanvasStudio() {
       fabricCanvas.off('object:modified', updateLayersList);
     };
   }, [fabricCanvas]);
+
+  const bringLayerToFront = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.bringObjectToFront(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const sendLayerToBack = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.sendObjectToBack(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerLock = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    const isLocked = !obj.selectable;
+    obj.set({
+      selectable: isLocked,
+      evented: isLocked,
+    });
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerVisibility = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    obj.set('visible', !obj.visible);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  // --- GLOBAL KEYBOARD SHORTCUTS ENGINE ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const targetTag = e.target ? e.target.tagName.toLowerCase() : '';
+      const isEditingText = targetTag === 'input' || targetTag === 'textarea' || (fabricCanvas && fabricCanvas.getActiveObject()?.isEditing);
+
+      if (isEditingText) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlayPause();
+      }
+
+      if (e.code === 'Delete' || e.code === 'Backspace') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const activeObjs = fabricCanvas.getActiveObjects();
+          activeObjs.forEach((obj) => fabricCanvas.remove(obj));
+          fabricCanvas.discardActiveObject();
+          fabricCanvas.renderAll();
+          saveState();
+          setStatus('🗑️ Deleted selected element(s)');
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fabricCanvas, undoStack, redoStack, isPlaying]);
+
+  // --- ASPECT RATIO PRESETS HANDLER ---
+  const applyCanvasPresetRatio = (preset) => {
+    if (!fabricCanvas) return;
+
+    let width = 820;
+    let height = 480;
+
+    if (preset === '16:9') {
+      width = 854;
+      height = 480;
+    } else if (preset === '9:16') {
+      width = 360;
+      height = 640;
+    } else if (preset === '1:1') {
+      width = 500;
+      height = 500;
+    } else if (preset === 'A4') {
+      width = 595;
+      height = 842;
+    }
+
+    fabricCanvas.setDimensions({ width, height });
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus(`📐 Resized Canvas Preset to ${preset} (${width}x${height}px)`);
+  };
+
+  // --- TEXT EFFECTS HANDLERS ---
+  const applyTextShadow = (shadowColor = '#000000', blur = 8) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set('shadow', new fabric.Shadow({
+        color: shadowColor,
+        blur: blur,
+        offsetX: 4,
+        offsetY: 4
+      }));
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✨ Applied Text Drop Shadow Effect');
+    }
+  };
+
+  const applyTextStroke = (strokeColor = '#000000', strokeWidth = 2) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set({
+        stroke: strokeColor,
+        strokeWidth: strokeWidth
+      });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✏️ Applied Text Stroke Outline Effect');
+    }
+  };
+
+  // --- WATERMARKING HANDLER ---
+  const applyWatermarkToAllPages = (watermarkText = 'CONFIDENTIAL') => {
+    if (!fabricCanvas) return;
+    const text = prompt('Enter Watermark Text for All Pages:', watermarkText);
+    if (!text) return;
+
+    const watermarkObj = new fabric.Text(text.toUpperCase(), {
+      fontSize: 48,
+      fontFamily: 'Arial',
+      fontWeight: 'bold',
+      fill: 'rgba(239, 68, 68, 0.25)',
+      angle: -35,
+      originX: 'center',
+      originY: 'center',
+      left: fabricCanvas.width / 2,
+      top: fabricCanvas.height / 2,
+      selectable: true,
+    });
+
+    fabricCanvas.add(watermarkObj);
+    fabricCanvas.setActiveObject(watermarkObj);
+    saveState();
+    setStatus(`💧 Added Watermark: "${text}" to Page View`);
+  };
+
+  // --- PAYSTACK SUBSCRIPTION HANDLER ---
+  const handlePaystackUpgrade = async () => {
+    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
+    if (!userEmail) return;
+
+    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
+
+    try {
+      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
+        userId: guestUserId,
+        email: userEmail,
+        currency: 'USD',
+      });
+
+      if (res.data?.authorizationUrl) {
+        window.location.href = res.data.authorizationUrl;
+      } else {
+        alert('Could not start Paystack checkout. Please check server keys.');
+      }
+    } catch (err) {
+      console.error('Paystack Checkout Error:', err);
+      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
+    }
+  };
 
   // --- UNIVERSAL ADD TEXT FUNCTION ---
   const addText = () => {
@@ -557,6 +890,26 @@ function CanvasStudio() {
     }
   };
 
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) videoRef.current.pause();
+    else videoRef.current.play();
+    setIsPlaying(!isPlaying);
+  };
+
+  const handleTimelineScrub = (newTime) => {
+    setTimelineSec(newTime);
+    if (videoRef.current) videoRef.current.currentTime = newTime;
+  };
+
+  const handleVideoTimeUpdate = () => {
+    if (videoRef.current) setTimelineSec(videoRef.current.currentTime);
+  };
+
+  const handleVideoLoadedMetadata = () => {
+    if (videoRef.current) setVideoDuration(videoRef.current.duration || 30);
+  };
+
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
   const bgBar = darkMode ? '#1e293b' : '#ffffff';
   const textColor = darkMode ? '#f8fafc' : '#0f172a';
@@ -577,8 +930,69 @@ function CanvasStudio() {
 
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
+        {/* LOAD SAMPLE DEMO BUTTON */}
+        <button 
+          title="Instantly load sample project elements" 
+          onClick={loadSampleDemo} 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            backgroundColor: '#8b5cf6',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ✨ Load Sample Demo
+        </button>
+
+        {/* OPEN RECENT PROJECTS BUTTON */}
+        <button 
+          title="Open Recent Projects History" 
+          onClick={() => setShowProjectsModal(true)} 
+          style={globalHeaderBtnStyle}
+        >
+          <FolderOpen size={13} /> Recent Projects
+        </button>
+
+        <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download PNG</button>
         <button title="Export Complete PDF Document" onClick={exportCompletePdf} style={exportPdfHeaderBtnStyle}><FileDown size={13} /> Export PDF</button>
+
+        {/* SHAREABLE PROJECT LINK BUTTON */}
+        <button title="Copy Shareable Link for Instant Guest Collaboration" onClick={generateShareableProjectUrl} style={globalHeaderBtnStyle}>
+          🔗 Copy Share Link
+        </button>
+
+        {/* PAYSTACK UPGRADE PRO BUTTON */}
+        <button 
+          onClick={handlePaystackUpgrade}
+          title="Upgrade to Pro with Mobile Money or Card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            backgroundColor: '#059669',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+          }}
+        >
+          ⚡ Upgrade Pro ($9/mo - MoMo/Card)
+        </button>
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
@@ -610,6 +1024,19 @@ function CanvasStudio() {
         <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
           <Type size={14} /> Add Text
         </button>
+
+        {/* WATERMARK DOCUMENT BUTTON */}
+        <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
+          💧 Watermark Document
+        </button>
+
+        {/* ASPECT RATIO PRESETS SELECTOR */}
+        <div style={{ display: 'flex', gap: '3px', borderLeft: `1px solid ${borderCol}`, borderRight: `1px solid ${borderCol}`, padding: '0 6px' }}>
+          <button title="YouTube Widescreen (16:9)" onClick={() => applyCanvasPresetRatio('16:9')} style={inspectorToggleBtnStyle(false)}>16:9</button>
+          <button title="TikTok / Reels Vertical (9:16)" onClick={() => applyCanvasPresetRatio('9:16')} style={inspectorToggleBtnStyle(false)}>9:16</button>
+          <button title="Instagram Square (1:1)" onClick={() => applyCanvasPresetRatio('1:1')} style={inspectorToggleBtnStyle(false)}>1:1</button>
+          <button title="A4 Print Document" onClick={() => applyCanvasPresetRatio('A4')} style={inspectorToggleBtnStyle(false)}>A4</button>
+        </div>
       </div>
 
       {/* 3. MAIN WORKSPACE */}
@@ -741,3 +1168,18 @@ const iconToolBtnStyle = (active) => ({
   borderRadius: '4px',
   cursor: 'pointer',
 });
+
+const inspectorToggleBtnStyle = (active) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '3px 7px',
+  backgroundColor: active ? '#0284c7' : 'transparent',
+  color: active ? '#ffffff' : 'inherit',
+  border: '1px solid #334155',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+});
+
+The blank white page is still there after deploying. What could be the issue now?
