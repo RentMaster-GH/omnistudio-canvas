@@ -1,5 +1,9 @@
 node_modules
-target
-omni_engine/target
+client/node_modules
+server/node_modules
+client/dist
+server/dist
+uploads
+outputs
 .git
-npm-debug.log
+.env

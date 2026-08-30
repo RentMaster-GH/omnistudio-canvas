@@ -1,12 +1,40 @@
-FROM node:20-alpine
+# Stage 1: Build Client Frontend
+FROM node:18-alpine AS client-builder
+WORKDIR /app/client
+COPY client/package*.json ./
+RUN npm install
+COPY client/ ./
+RUN npm run build
 
-WORKDIR /usr/src/app
+# Stage 2: Build Server Backend & Install System FFmpeg
+FROM node:18-bullseye-slim AS runner
+WORKDIR /app
 
-COPY package*.json ./
+# Install FFmpeg and image libraries
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Server Dependencies & Code
+COPY server/package*.json ./server/
+WORKDIR /app/server
 RUN npm install
 
-COPY . .
+COPY server/ ./
+RUN npm run build
 
-EXPOSE 5173
+# Copy built frontend into server distribution
+COPY --from=client-builder /app/client/dist /app/client/dist
 
-CMD ["npm", "run", "dev", "--", "--host"]
+# Create uploads & outputs directories
+RUN mkdir -p /app/uploads /app/outputs
+
+EXPOSE 5000
+
+ENV PORT=5000
+ENV NODE_ENV=production
+
+CMD ["node", "dist/index.js"]

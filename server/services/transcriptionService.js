@@ -9,7 +9,7 @@ const ffmpegService = require('./ffmpegService');
 const transcribeMedia = async (filePath) => {
   const apiKey = process.env.OPENAI_API_KEY;
 
-  if (!apiKey || apiKey === 'your_openai_api_key_here') {
+  if (!apiKey || apiKey === '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') {
     throw new Error('OpenAI API Key is missing. Please set OPENAI_API_KEY in server/.env file.');
   }
 
