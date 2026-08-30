@@ -11,16 +11,14 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
   PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Unlock, Film, CheckSquare, LogOut,
-  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard, FolderOpen
+  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard, FolderOpen, Sparkles, Clock
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
 import TranscriptEditor from './components/TranscriptEditor';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-
 // Points to Vercel Serverless API or Local Server
-const API_BASE = window.location.hostname === 'localhost'
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
   : '/api';
 
@@ -38,6 +36,12 @@ const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
   }
   return fallbackHex;
 };
+
+// --- UNIVERSAL FABRIC CONSTRUCTOR RESOLVERS ---
+const getFabricCanvas = () => fabric.Canvas || (fabric.default && fabric.default.Canvas);
+const getFabricIText = () => fabric.IText || fabric.Textbox || (fabric.default && fabric.default.IText) || (fabric.default && fabric.default.Textbox);
+const getFabricImage = () => fabric.FabricImage || fabric.Image || (fabric.default && fabric.default.Image);
+const getFabricPencilBrush = () => fabric.PencilBrush || (fabric.default && fabric.default.PencilBrush);
 
 // --- REACT ERROR BOUNDARY (PREVENTS BLANK WHITE PAGES) ---
 class StudioErrorBoundary extends Component {
@@ -171,6 +175,17 @@ function CanvasStudio() {
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
+  // --- SAFE PDF.JS WORKER INITIALIZATION INSIDE USEEFFECT ---
+  useEffect(() => {
+    try {
+      if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+      }
+    } catch (e) {
+      console.warn('PDF.js worker initialization skipped:', e);
+    }
+  }, []);
+
   // --- GOOGLE FONTS DYNAMIC INJECTION ENGINE ---
   useEffect(() => {
     const fontLink = document.createElement('link');
@@ -179,9 +194,15 @@ function CanvasStudio() {
     document.head.appendChild(fontLink);
   }, []);
 
-  // Initialize Fabric Canvas
+  // UNIVERSAL FABRIC CANVAS INITIALIZATION
   useEffect(() => {
-    const canvas = new fabric.Canvas(canvasRef.current, {
+    const CanvasClass = getFabricCanvas();
+    if (!CanvasClass) {
+      console.error('Fabric Canvas constructor unavailable.');
+      return;
+    }
+
+    const canvas = new CanvasClass(canvasRef.current, {
       width: 820,
       height: 480,
       backgroundColor: '#ffffff',
@@ -212,8 +233,6 @@ function CanvasStudio() {
         isPanningRef.current = false;
         canvas.defaultCursor = 'grab';
         canvas.setCursor('grab');
-      } else {
-        handleMouseUpInitializer(canvas, opt);
       }
     });
 
@@ -274,7 +293,7 @@ function CanvasStudio() {
     };
   }, [fabricCanvas]);
 
-  // --- PURE FABRIC V5 ADD TEXT FUNCTION ---
+  // --- UNIVERSAL ADD TEXT FUNCTION ---
   const addText = () => {
     if (!fabricCanvas) {
       alert('Please open a PDF or document first.');
@@ -285,7 +304,13 @@ function CanvasStudio() {
       if (!isEditMode) setIsEditMode(true);
       setActiveTool('select');
 
-      const text = new fabric.IText('Type text here...', {
+      const ITextClass = getFabricIText();
+      if (!ITextClass) {
+        alert('Fabric text class unavailable.');
+        return;
+      }
+
+      const text = new ITextClass('Type text here...', {
         left: 200,
         top: 150,
         fontSize: Number(fontSizeVal) || 24,
@@ -390,10 +415,13 @@ function CanvasStudio() {
       fabricCanvas.setCursor('grab');
     } else if (mode === 'draw') {
       fabricCanvas.isDrawingMode = true;
-      const brush = new fabric.PencilBrush(fabricCanvas);
-      brush.width = 3;
-      brush.color = '#ef4444';
-      fabricCanvas.freeDrawingBrush = brush;
+      const PencilBrushClass = getFabricPencilBrush();
+      if (PencilBrushClass) {
+        const brush = new PencilBrushClass(fabricCanvas);
+        brush.width = 3;
+        brush.color = '#ef4444';
+        fabricCanvas.freeDrawingBrush = brush;
+      }
     } else {
       fabricCanvas.defaultCursor = 'default';
       fabricCanvas.setCursor('default');
@@ -429,7 +457,8 @@ function CanvasStudio() {
     await page.render({ canvasContext: context, viewport }).promise;
 
     const imgData = tempCanvas.toDataURL('image/png');
-    const imgObj = await fabric.FabricImage.fromURL(imgData);
+    const ImageClass = getFabricImage();
+    const imgObj = await ImageClass.fromURL(imgData);
 
     const left = (canvasWidth - imgObj.width) / 2;
     const top = (canvasHeight - imgObj.height) / 2;
@@ -488,8 +517,6 @@ function CanvasStudio() {
     await renderPdfPageOntoCanvas(pdfDoc, newPage, fitMode);
   };
 
-  const handleMouseUpInitializer = (canvas, opt) => {};
-
   const exportCanvasImage = () => {
     if (!fabricCanvas) return;
     const dataURL = fabricCanvas.toDataURL({ format: 'png' });
@@ -497,6 +524,48 @@ function CanvasStudio() {
     link.download = `edited-document-page-${pageNum}.png`;
     link.href = dataURL;
     link.click();
+  };
+
+  const exportCompletePdf = async () => {
+    if (!pdfDoc || !fabricCanvas) {
+      alert('Please upload a PDF document first to export as PDF!');
+      return;
+    }
+
+    setStatus('📄 Compiling all edited pages into downloadable PDF...');
+
+    try {
+      const pdfExport = new jsPDF({
+        orientation: fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [fabricCanvas.width, fabricCanvas.height],
+      });
+
+      const currentPage = pageNum;
+
+      for (let i = 1; i <= totalPages; i++) {
+        setStatus(`📄 Rendering & baking Page ${i} of ${totalPages}...`);
+        await renderPdfPageOntoCanvas(pdfDoc, i, fitMode);
+
+        const pageDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
+
+        if (i > 1) {
+          pdfExport.addPage([fabricCanvas.width, fabricCanvas.height], fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait');
+        }
+
+        pdfExport.addImage(pageDataUrl, 'PNG', 0, 0, fabricCanvas.width, fabricCanvas.height);
+      }
+
+      await renderPdfPageOntoCanvas(pdfDoc, currentPage, fitMode);
+      setPageNum(currentPage);
+
+      pdfExport.save(`omnistudio-edited-document-${Date.now()}.pdf`);
+      setStatus('✅ Multi-Page PDF exported and downloaded successfully!');
+      alert('🎉 Your complete edited PDF document has been downloaded!');
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      setStatus(`Error exporting PDF: ${err.message}`);
+    }
   };
 
   const bgMain = darkMode ? '#0f172a' : '#f1f5f9';
@@ -520,6 +589,7 @@ function CanvasStudio() {
         <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download PNG</button>
+        <button title="Export Complete PDF Document" onClick={exportCompletePdf} style={exportPdfHeaderBtnStyle}><FileDown size={13} /> Export PDF</button>
 
         <div style={{ marginLeft: 'auto' }}>
           <button title="Toggle Theme" onClick={() => setDarkMode(!darkMode)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>
@@ -602,7 +672,7 @@ function CanvasStudio() {
   );
 }
 
-// Export Wrapped in Error Boundary
+// SINGLE DEFAULT EXPORT WRAPPED IN ERROR BOUNDARY
 export default function SafeCanvasStudio() {
   return (
     <StudioErrorBoundary>
@@ -638,6 +708,22 @@ const globalHeaderBtnStyle = {
   cursor: 'pointer',
   fontSize: '11px',
   fontWeight: 'bold',
+};
+
+const exportPdfHeaderBtnStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: '#8b5cf6',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
 };
 
 const prominentBtnStyle = (bgColor) => ({
