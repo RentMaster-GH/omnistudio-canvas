@@ -274,50 +274,35 @@ function CanvasStudio() {
     };
   }, [fabricCanvas]);
 
-  // --- BULLETPROOF SAFE ADD TEXT FUNCTION ---
+  // --- PURE FABRIC V5 ADD TEXT FUNCTION ---
   const addText = () => {
-    try {
-      if (!fabricCanvas) {
-        alert('Canvas not ready yet. Please open a PDF or Document.');
-        return;
-      }
+    if (!fabricCanvas) {
+      alert('Please open a PDF or document first.');
+      return;
+    }
 
+    try {
       if (!isEditMode) setIsEditMode(true);
       setActiveTool('select');
 
-      const TextConstructor = fabric.IText || fabric.Textbox || fabric.Text;
-      if (!TextConstructor) {
-        console.error('Fabric text class missing');
-        return;
-      }
-
-      const safeFontSize = Number(fontSizeVal) > 0 ? Number(fontSizeVal) : 24;
-      const safeFontFamily = fontFamilyVal || 'Arial';
-      const safeColor = ensureValidHexColor(textColorVal, '#0f172a');
-
-      const textObj = new TextConstructor('Type text here...', { 
-        left: fabricCanvas.width ? fabricCanvas.width / 3 : 200, 
-        top: fabricCanvas.height ? fabricCanvas.height / 3 : 150, 
-        fontSize: safeFontSize, 
-        fontFamily: safeFontFamily,
-        fill: safeColor,
-        fontWeight: isBoldVal ? 'bold' : 'normal',
-        fontStyle: isItalicVal ? 'italic' : 'normal',
-        underline: !!isUnderlineVal,
-        textAlign: textAlignVal || 'left',
+      const text = new fabric.IText('Type text here...', {
+        left: 200,
+        top: 150,
+        fontSize: Number(fontSizeVal) || 24,
+        fontFamily: fontFamilyVal || 'Arial',
+        fill: ensureValidHexColor(textColorVal, '#0f172a'),
         selectable: true,
         editable: true,
       });
 
-      fabricCanvas.add(textObj);
-      fabricCanvas.setActiveObject(textObj);
-      setActiveEditingObject(textObj);
+      fabricCanvas.add(text);
+      fabricCanvas.setActiveObject(text);
       fabricCanvas.renderAll();
-
       saveState(fabricCanvas);
+
       setStatus('✏️ Added new editable text box.');
     } catch (err) {
-      console.error('[Add Text Error]:', err);
+      console.error('Add Text Failed:', err);
       alert(`Could not add text box: ${err.message}`);
     }
   };
