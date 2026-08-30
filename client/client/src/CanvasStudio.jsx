@@ -11,7 +11,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
   PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
-  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower
+  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, Zap
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
@@ -53,6 +53,7 @@ export default function CanvasStudio() {
   const [status, setStatus] = useState('Ready - View Mode');
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isProUser, setIsProUser] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState(null);
 
   // Dynamic Fit Mode State: 'width' | 'page'
@@ -134,7 +135,7 @@ export default function CanvasStudio() {
     }
   ]);
 
-  const [clips] = useState([
+  const [clips, setClips] = useState([
     { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
     { id: 'c2', trackId: 't2', name: 'Background Audio.mp3', type: 'audio', timelineStart: 0, duration: 25 },
     { id: 'c3', trackId: 't4', name: 'Whisper Subtitles', type: 'transcription', timelineStart: 2, duration: 10 },
@@ -145,6 +146,59 @@ export default function CanvasStudio() {
 
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+
+  // Detect Paystack redirect on page load
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+    const reference = urlParams.get('reference') || urlParams.get('trxref');
+
+    if (paymentStatus === 'success' || reference) {
+      verifyPaystackPayment(reference);
+    }
+  }, []);
+
+  const verifyPaystackPayment = async (reference) => {
+    setStatus('🔍 Verifying Paystack transaction status...');
+    try {
+      const res = await axios.get(`${API_BASE}/billing/verify-paystack/${reference}`);
+      if (res.data?.status === 'success') {
+        setIsProUser(true);
+        setStatus('🎉 Paystack Payment Verified! OmniStudio Pro Active.');
+        alert('⚡ Welcome to OmniStudio Pro! 4K Exports, Whisper AI & Green Screen unlocked.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else {
+        setStatus('⚠️ Payment verification pending or failed.');
+      }
+    } catch (err) {
+      console.error('Verification Error:', err);
+      setStatus('Error verifying payment reference.');
+    }
+  };
+
+  const handlePaystackUpgrade = async () => {
+    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
+    if (!userEmail) return;
+
+    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
+
+    try {
+      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
+        userId: mockUserId,
+        email: userEmail,
+        currency: 'USD',
+      });
+
+      if (res.data?.authorizationUrl) {
+        window.location.href = res.data.authorizationUrl;
+      } else {
+        alert('Could not start Paystack checkout. Please check server keys.');
+      }
+    } catch (err) {
+      console.error('Paystack Checkout Error:', err);
+      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
+    }
+  };
 
   useEffect(() => {
     activeToolRef.current = activeTool;
@@ -229,7 +283,6 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- SAFE ADD TEXT FUNCTION ---
   const addText = () => {
     try {
       if (!isEditMode) setIsEditMode(true);
@@ -1716,6 +1769,7 @@ export default function CanvasStudio() {
                 isPlaying={isPlaying}
                 onPlayPauseToggle={togglePlayPause}
                 onScrub={handleTimelineScrub}
+                onClipUpdate={(updatedClips) => setClips(updatedClips)}
                 darkMode={darkMode}
               />
 
