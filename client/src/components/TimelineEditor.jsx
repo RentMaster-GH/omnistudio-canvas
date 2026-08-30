@@ -1,5 +1,4 @@
-// src/components/TimelineEditor.jsx
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, Layers, Eye, EyeOff, Volume2, VolumeX, Lock, Unlock, Film, Music, Image as ImageIcon, Type, Captions } from 'lucide-react';
 
 export default function TimelineEditor({
@@ -10,41 +9,106 @@ export default function TimelineEditor({
   isPlaying = false,
   onPlayPauseToggle = () => {},
   onScrub = () => {},
+  onClipUpdate = () => {},
   darkMode = true,
 }) {
   const timelineRef = useRef(null);
+  
+  // Interactive Clip State for Dragging & Edge Trimming
+  const [localClips, setLocalClips] = useState(clips);
   const [isDraggingPlayhead, setIsDraggingPlayhead] = useState(false);
+  const [draggingClip, setDraggingClip] = useState(null);
+  const [resizingClip, setResizingClip] = useState(null);
+
+  // Sync props clips when external clips change
+  useEffect(() => {
+    setLocalClips(clips);
+  }, [clips]);
 
   // Time formatting helper
-  const formatTime = (secs) => {
+  const formatTime = (secs = 0) => {
     const mins = Math.floor(secs / 60);
     const remainingSecs = Math.floor(secs % 60);
     const ms = Math.floor((secs % 1) * 10);
     return `${String(mins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}.${ms}`;
   };
 
-  // Handle timeline click / drag scrubbing
-  const handleTimelineClick = (e) => {
-    if (!timelineRef.current) return;
+  // Convert client X position to timecode (seconds)
+  const getTimeFromX = (clientX) => {
+    if (!timelineRef.current) return 0;
     const rect = timelineRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
-    onScrub(percentage * duration);
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return parseFloat((ratio * duration).toFixed(2));
   };
 
-  const handleMouseDown = (e) => {
+  // Handle timeline click / drag scrubbing
+  const handleTimelineClick = (e) => {
+    const targetTime = getTimeFromX(e.clientX);
+    onScrub(targetTime);
+  };
+
+  const handleMouseDownPlayhead = (e) => {
     setIsDraggingPlayhead(true);
     handleTimelineClick(e);
+  };
+
+  // --- CLIP DRAG & TRIM HANDLERS ---
+  const handleMouseDownClip = (e, clip, action) => {
+    e.stopPropagation();
+    if (action === 'move') {
+      setDraggingClip({ clip, originalStart: clip.timelineStart, clickOffset: getTimeFromX(e.clientX) - clip.timelineStart });
+    } else if (action === 'resize-left' || action === 'resize-right') {
+      setResizingClip({ clip, action, originalStart: clip.timelineStart, originalDuration: clip.duration });
+    }
   };
 
   const handleMouseMove = (e) => {
     if (isDraggingPlayhead) {
       handleTimelineClick(e);
+      return;
+    }
+
+    const mouseTime = getTimeFromX(e.clientX);
+
+    if (draggingClip) {
+      const updatedClips = localClips.map((c) => {
+        if (c.id === draggingClip.clip.id) {
+          const newStart = Math.max(0, Math.min(duration - c.duration, mouseTime - draggingClip.clickOffset));
+          return { ...c, timelineStart: parseFloat(newStart.toFixed(2)) };
+        }
+        return c;
+      });
+      setLocalClips(updatedClips);
+    } else if (resizingClip) {
+      const updatedClips = localClips.map((c) => {
+        if (c.id === resizingClip.clip.id) {
+          if (resizingClip.action === 'resize-right') {
+            const newDuration = Math.max(0.5, mouseTime - c.timelineStart);
+            return { ...c, duration: parseFloat(newDuration.toFixed(2)) };
+          } else if (resizingClip.action === 'resize-left') {
+            const endPoint = c.timelineStart + c.duration;
+            const newStart = Math.max(0, Math.min(endPoint - 0.5, mouseTime));
+            const newDuration = endPoint - newStart;
+            return { 
+              ...c, 
+              timelineStart: parseFloat(newStart.toFixed(2)), 
+              duration: parseFloat(newDuration.toFixed(2)) 
+            };
+          }
+        }
+        return c;
+      });
+      setLocalClips(updatedClips);
     }
   };
 
   const handleMouseUp = () => {
+    if (draggingClip || resizingClip) {
+      onClipUpdate(localClips);
+    }
     setIsDraggingPlayhead(false);
+    setDraggingClip(null);
+    setResizingClip(null);
   };
 
   const bgTrackHeader = darkMode ? '#1e293b' : '#f1f5f9';
@@ -104,7 +168,7 @@ export default function TimelineEditor({
         display: 'flex',
         alignItems: 'center',
         padding: '0 12px',
-        justify: 'space-between'
+        justifyContent: 'space-between'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button
@@ -129,6 +193,10 @@ export default function TimelineEditor({
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
         </div>
+
+        <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+          Drag clip body to move | Drag handles to trim duration
+        </span>
 
         <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#0284c7', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Layers size={14} /> Multi-Track NLE Timeline Editor
@@ -155,7 +223,7 @@ export default function TimelineEditor({
                 padding: '0 8px',
                 display: 'flex',
                 alignItems: 'center',
-                justifySpace: 'between',
+                justifyContent: 'space-between',
                 gap: '6px',
                 boxSizing: 'border-box'
               }}
@@ -175,7 +243,7 @@ export default function TimelineEditor({
         {/* RIGHT COLUMN: TIME RULER & TRACK LANES */}
         <div 
           ref={timelineRef}
-          onMouseDown={handleMouseDown}
+          onMouseDown={handleMouseDownPlayhead}
           style={{ flex: 1, position: 'relative', overflowX: 'hidden', cursor: 'crosshair' }}
         >
           {/* TIME RULER TICKS */}
@@ -210,13 +278,14 @@ export default function TimelineEditor({
               }}
             >
               {/* Render clips belonging to this track */}
-              {clips.filter(c => c.trackId === track.id || c.type === track.type).map((clip) => {
+              {localClips.filter(c => c.trackId === track.id || c.type === track.type).map((clip) => {
                 const leftPct = (clip.timelineStart / duration) * 100;
                 const widthPct = (clip.duration / duration) * 100;
 
                 return (
                   <div
                     key={clip.id}
+                    onMouseDown={(e) => handleMouseDownClip(e, clip, 'move')}
                     style={{
                       position: 'absolute',
                       left: `${leftPct}%`,
@@ -225,23 +294,50 @@ export default function TimelineEditor({
                       height: '30px',
                       backgroundColor: getClipColor(clip.type),
                       borderRadius: '4px',
-                      padding: '2px 6px',
                       color: '#ffffff',
                       fontSize: '10px',
                       fontWeight: 'bold',
                       boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
                       overflow: 'hidden',
                       whiteSpace: 'nowrap',
-                      textOverflow: 'ellipsis',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '4px',
-                      cursor: 'pointer'
+                      justifyContent: 'space-between',
+                      cursor: 'grab'
                     }}
                     title={`${clip.name} (${clip.duration}s)`}
                   >
-                    {getTrackIcon(clip.type)}
-                    <span>{clip.name}</span>
+                    {/* Left Trim Handle */}
+                    <div
+                      onMouseDown={(e) => handleMouseDownClip(e, clip, 'resize-left')}
+                      title="Drag to trim start time"
+                      style={{
+                        width: '6px',
+                        height: '100%',
+                        backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                        cursor: 'ew-resize',
+                        borderRadius: '2px 0 0 2px'
+                      }}
+                    />
+
+                    {/* Clip Body Label */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', padding: '0 4px' }}>
+                      {getTrackIcon(clip.type)}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{clip.name}</span>
+                    </div>
+
+                    {/* Right Trim Handle */}
+                    <div
+                      onMouseDown={(e) => handleMouseDownClip(e, clip, 'resize-right')}
+                      title="Drag to trim duration"
+                      style={{
+                        width: '6px',
+                        height: '100%',
+                        backgroundColor: 'rgba(255, 255, 255, 0.4)',
+                        cursor: 'ew-resize',
+                        borderRadius: '0 2px 2px 0'
+                      }}
+                    />
                   </div>
                 );
               })}

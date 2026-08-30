@@ -1,0 +1,14 @@
+# Ignore heavy dependencies and local builds
+node_modules
+client/node_modules
+server/node_modules
+client/dist
+server/dist
+uploads
+outputs
+*.mp4
+*.wav
+*.png
+.git
+.env
+.env.local

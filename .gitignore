@@ -6,3 +6,4 @@ server/outputs/*
 !server/outputs/.gitkeep
 server/.env
 .DS_Store
+.vercel

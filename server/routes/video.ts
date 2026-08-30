@@ -3,6 +3,7 @@ import multer from 'multer';
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
+import OpenAI from 'openai';
 import { processTranscription } from '../services/transcribe';
 import { extractAudioForTranscription, cleanupFile } from '../utils/audio';
 
@@ -16,11 +17,15 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
 const upload = multer({ dest: uploadDir });
 
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
 /**
  * 1. POST /api/video/render-canvas
  * Compiles array of Base64 PNG frames into MP4 video.
  */
-router.post('/render-canvas', async (req, res) => {
+router.post('/render-canvas', async (req: any, res: any) => {
   try {
     const { frames, fps = 30 } = req.body;
     if (!frames || !Array.isArray(frames) || frames.length === 0) {
@@ -144,6 +149,56 @@ router.post('/auto-subtitle', upload.single('video'), async (req: any, res: any)
     if (audioPath) cleanupFile(audioPath);
     if (srtPath) cleanupFile(srtPath);
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * 4. POST /api/video/tts
+ * Generates synthetic AI voiceovers from text scripts using OpenAI TTS.
+ */
+router.post('/tts', async (req: any, res: any) => {
+  try {
+    const { text, voice = 'alloy' } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Text prompt is required for TTS generation.' });
+    }
+
+    const outputFileName = `tts_${Date.now()}.mp3`;
+    const outputPath = path.join(outputDir, outputFileName);
+
+    // Mock Fallback if OPENAI_API_KEY is not set
+    if (!openai) {
+      console.warn('[TTS Engine] OPENAI_API_KEY not set. Returning placeholder.');
+      return res.json({
+        success: true,
+        file: outputFileName,
+        text,
+        voice,
+        duration: 5,
+        isMock: true,
+      });
+    }
+
+    // Call OpenAI Text-to-Speech API
+    const mp3Response = await openai.audio.speech.create({
+      model: 'tts-1',
+      voice: voice, // 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
+      input: text,
+    });
+
+    const buffer = Buffer.from(await mp3Response.arrayBuffer());
+    fs.writeFileSync(outputPath, buffer);
+
+    res.json({
+      success: true,
+      file: outputFileName,
+      text,
+      voice,
+      duration: Math.max(2, Math.ceil(text.length / 15)),
+    });
+  } catch (err: any) {
+    console.error('[TTS Error]:', err);
+    res.status(500).json({ error: 'TTS voiceover generation failed', details: err.message });
   }
 });
 
