@@ -20,7 +20,7 @@ import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
-// NEW (Points to Vercel Serverless API):
+// Points to Vercel Serverless API or Local Server
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
   : '/api';
@@ -45,9 +45,6 @@ export default function CanvasStudio() {
   const videoRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
-  
-  // Office Fluent UI Active Tab: 'home' | 'insert' | 'annotate' | 'page' | 'media'
-  const [fluentTab, setFluentTab] = useState('home');
   const [activePortal, setActivePortal] = useState('pdf');
   
   const [darkMode, setDarkMode] = useState(true);
@@ -147,6 +144,14 @@ export default function CanvasStudio() {
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
+  // --- GOOGLE FONTS DYNAMIC INJECTION ENGINE ---
+  useEffect(() => {
+    const fontLink = document.createElement('link');
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Bebas+Neue&family=Bungee&family=Caveat&family=Cinzel&family=Cormorant+Garamond&family=Courgette&family=Dancing+Script&family=Fira+Code&family=Great+Vibes&family=Inter&family=JetBrains+Mono&family=Lato&family=Lobster&family=Lora&family=Merriweather&family=Montserrat&family=Nunito&family=Open+Sans&family=Orbitron&family=Oswald&family=Pacifico&family=Permanent+Marker&family=Playfair+Display&family=Poppins&family=Press+Start+2P&family=Raleway&family=Roboto&family=Sacramento&family=Satisfy&family=Source+Code+Pro&display=swap';
+    fontLink.rel = 'stylesheet';
+    document.head.appendChild(fontLink);
+  }, []);
+
   useEffect(() => {
     activeToolRef.current = activeTool;
   }, [activeTool]);
@@ -230,6 +235,71 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
+  // --- TEXT EFFECTS HANDLERS ---
+  const applyTextShadow = (shadowColor = '#000000', blur = 8) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set('shadow', new fabric.Shadow({
+        color: shadowColor,
+        blur: blur,
+        offsetX: 4,
+        offsetY: 4
+      }));
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✨ Applied Text Drop Shadow Effect');
+    }
+  };
+
+  const applyTextStroke = (strokeColor = '#000000', strokeWidth = 2) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      activeObj.set({
+        stroke: strokeColor,
+        strokeWidth: strokeWidth
+      });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✏️ Applied Text Stroke Outline Effect');
+    }
+  };
+
+  // --- WATERMARKING & PAGE REORDERING HANDLERS ---
+  const applyWatermarkToAllPages = (watermarkText = 'CONFIDENTIAL') => {
+    if (!fabricCanvas) return;
+    const text = prompt('Enter Watermark Text for All Pages:', watermarkText);
+    if (!text) return;
+
+    const watermarkObj = new fabric.Text(text.toUpperCase(), {
+      fontSize: 48,
+      fontFamily: 'Arial',
+      fontWeight: 'bold',
+      fill: 'rgba(239, 68, 68, 0.25)', // Semi-transparent Red
+      angle: -35,
+      originX: 'center',
+      originY: 'center',
+      left: fabricCanvas.width / 2,
+      top: fabricCanvas.height / 2,
+      selectable: true,
+    });
+
+    fabricCanvas.add(watermarkObj);
+    fabricCanvas.setActiveObject(watermarkObj);
+    saveState();
+    setStatus(`💧 Added Watermark: "${text}" to Page View`);
+  };
+
+  const movePdfPage = (fromIdx, toIdx) => {
+    if (fromIdx < 0 || toIdx < 0 || fromIdx >= thumbnails.length || toIdx >= thumbnails.length) return;
+    const updatedThumbs = [...thumbnails];
+    const [movedThumb] = updatedThumbs.splice(fromIdx, 1);
+    updatedThumbs.splice(toIdx, 0, movedThumb);
+    setThumbnails(updatedThumbs);
+    setStatus(`📄 Moved Page ${fromIdx + 1} to Position ${toIdx + 1}`);
+  };
+
   // --- PAYSTACK SUBSCRIPTION HANDLER ---
   const handlePaystackUpgrade = async () => {
     const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
@@ -241,7 +311,7 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
         userId: mockUserId,
         email: userEmail,
-        currency: 'USD', // Or 'GHS' for Ghana Cedi
+        currency: 'USD',
       });
 
       if (res.data?.authorizationUrl) {
@@ -1261,7 +1331,7 @@ export default function CanvasStudio() {
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
-        {/* PAYSTACK UPGRADE PRO BUTTON (GREEN ACCENT) */}
+        {/* PAYSTACK UPGRADE PRO BUTTON */}
         <button 
           onClick={handlePaystackUpgrade}
           title="Upgrade to Pro with Mobile Money or Card"
@@ -1322,6 +1392,11 @@ export default function CanvasStudio() {
 
             <button title="Add / Edit Text" onClick={addText} style={prominentBtnStyle('#0284c7')}>
               <Type size={14} /> Text
+            </button>
+
+            {/* WATERMARK DOCUMENT BUTTON */}
+            <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
+              💧 Watermark Document
             </button>
 
             <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
@@ -1488,17 +1563,66 @@ export default function CanvasStudio() {
           </button>
         )}
 
+        {/* ALL AVAILABLE GOOGLE FONTS DROPDOWN */}
         <select 
           value={fontFamilyVal} 
           onChange={(e) => { setFontFamilyVal(e.target.value); updateActiveTextProp('fontFamily', e.target.value); }}
-          style={{ padding: '2px 4px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
+          style={{ padding: '2px 6px', fontSize: '11px', borderRadius: '3px', backgroundColor: bgMain, color: textColor, border: `1px solid ${borderCol}` }}
         >
-          <option value="Arial">Arial</option>
-          <option value="Times New Roman">Times New Roman</option>
-          <option value="Courier New">Courier New</option>
-          <option value="Georgia">Georgia</option>
-          <option value="Impact">Impact</option>
-          <option value="Trebuchet MS">Trebuchet MS</option>
+          <optgroup label="Modern Sans-Serif">
+            <option value="Arial">Arial</option>
+            <option value="Inter">Inter</option>
+            <option value="Roboto">Roboto</option>
+            <option value="Montserrat">Montserrat</option>
+            <option value="Poppins">Poppins</option>
+            <option value="Open Sans">Open Sans</option>
+            <option value="Lato">Lato</option>
+            <option value="Nunito">Nunito</option>
+            <option value="Raleway">Raleway</option>
+            <option value="Helvetica">Helvetica</option>
+          </optgroup>
+          
+          <optgroup label="Classic Serif">
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Playfair Display">Playfair Display</option>
+            <option value="Merriweather">Merriweather</option>
+            <option value="Lora">Lora</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Cinzel">Cinzel</option>
+            <option value="Cormorant Garamond">Cormorant Garamond</option>
+            <option value="Garamond">Garamond</option>
+          </optgroup>
+
+          <optgroup label="Handwriting & Cursive">
+            <option value="Pacifico">Pacifico</option>
+            <option value="Dancing Script">Dancing Script</option>
+            <option value="Caveat">Caveat</option>
+            <option value="Great Vibes">Great Vibes</option>
+            <option value="Satisfy">Satisfy</option>
+            <option value="Permanent Marker">Permanent Marker</option>
+            <option value="Sacramento">Sacramento</option>
+            <option value="Courgette">Courgette</option>
+          </optgroup>
+
+          <optgroup label="Display & Heavy Impact">
+            <option value="Impact">Impact</option>
+            <option value="Bebas Neue">Bebas Neue</option>
+            <option value="Anton">Anton</option>
+            <option value="Oswald">Oswald</option>
+            <option value="Lobster">Lobster</option>
+            <option value="Bungee">Bungee</option>
+            <option value="Orbitron">Orbitron</option>
+            <option value="Bangers">Bangers</option>
+            <option value="Press Start 2P">Press Start 2P (Retro 8-Bit)</option>
+          </optgroup>
+
+          <optgroup label="Coding & Monospace">
+            <option value="Courier New">Courier New</option>
+            <option value="Fira Code">Fira Code</option>
+            <option value="JetBrains Mono">JetBrains Mono</option>
+            <option value="Source Code Pro">Source Code Pro</option>
+            <option value="Consolas">Consolas</option>
+          </optgroup>
         </select>
 
         <input 
@@ -1518,15 +1642,15 @@ export default function CanvasStudio() {
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        <button title="Align Left" onClick={() => { setTextAlignVal('left'); updateActiveTextProp('textAlign', 'left'); }} style={inspectorToggleBtnStyle(textAlignVal === 'left')}><AlignLeft size={13} /></button>
-        <button title="Align Center" onClick={() => { setTextAlignVal('center'); updateActiveTextProp('textAlign', 'center'); }} style={inspectorToggleBtnStyle(textAlignVal === 'center')}><AlignCenter size={13} /></button>
-        <button title="Align Right" onClick={() => { setTextAlignVal('right'); updateActiveTextProp('textAlign', 'right'); }} style={inspectorToggleBtnStyle(textAlignVal === 'right')}><AlignRight size={13} /></button>
+        {/* TEXT EFFECT BUTTONS: SHADOW & STROKE OUTLINE */}
+        <button title="Apply Text Drop Shadow" onClick={() => applyTextShadow('#000000', 8)} style={inspectorToggleBtnStyle(false)}>Shadow</button>
+        <button title="Apply Text Outline Stroke" onClick={() => applyTextStroke('#000000', 2)} style={inspectorToggleBtnStyle(false)}>Outline</button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 
-        <button title="Align Text Top" onClick={() => alignTextVertical('top')} style={iconToolBtnStyle(false)}><AlignStartVertical size={13} /></button>
-        <button title="Align Text Middle" onClick={() => alignTextVertical('middle')} style={iconToolBtnStyle(false)}><AlignCenterVertical size={13} /></button>
-        <button title="Align Text Bottom" onClick={() => alignTextVertical('bottom')} style={iconToolBtnStyle(false)}><AlignEndVertical size={13} /></button>
+        <button title="Align Left" onClick={() => { setTextAlignVal('left'); updateActiveTextProp('textAlign', 'left'); }} style={inspectorToggleBtnStyle(textAlignVal === 'left')}><AlignLeft size={13} /></button>
+        <button title="Align Center" onClick={() => { setTextAlignVal('center'); updateActiveTextProp('textAlign', 'center'); }} style={inspectorToggleBtnStyle(textAlignVal === 'center')}><AlignCenter size={13} /></button>
+        <button title="Align Right" onClick={() => { setTextAlignVal('right'); updateActiveTextProp('textAlign', 'right'); }} style={inspectorToggleBtnStyle(textAlignVal === 'right')}><AlignRight size={13} /></button>
 
         <div style={{ width: '1px', height: '16px', backgroundColor: borderCol }} />
 

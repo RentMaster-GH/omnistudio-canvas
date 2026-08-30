@@ -204,18 +204,17 @@ router.post('/tts', async (req: any, res: any) => {
 
 /**
  * 5. POST /api/video/effects
- * Applies Green Screen Chroma Keying, Speed Ramping, and Color Grading via FFmpeg.
+ * Applies Green Screen Chroma Keying, Speed Ramping, and Cinematic Color Grading.
  */
 router.post('/effects', upload.single('video'), async (req: any, res: any) => {
   if (!req.file) return res.status(400).json({ error: 'No video file provided.' });
 
   const videoPath = req.file.path;
   const { 
-    chromaKey = 'false', // 'true' | 'false'
-    keyColor = '0x00FF00', // Green hex
-    speed = '1.0',       // 0.5, 1.0, 1.5, 2.0
-    contrast = '1.0',    // 0.5 to 2.0
-    saturation = '1.0'   // 0.0 to 2.0
+    chromaKey = 'false',
+    keyColor = '0x00FF00',
+    speed = '1.0',
+    preset = 'none' // 'vintage' | 'bw' | 'cinematic' | 'cold' | 'vignette'
   } = req.body;
 
   const outputFileName = `effects_${Date.now()}.mp4`;
@@ -229,18 +228,24 @@ router.post('/effects', upload.single('video'), async (req: any, res: any) => {
       filters.push(`chromakey=${keyColor}:0.1:0.2`);
     }
 
-    // 2. Speed Adjustment (setpts for video)
+    // 2. Speed Adjustment
     const speedVal = parseFloat(speed) || 1.0;
     if (speedVal !== 1.0) {
       const ptsFactor = (1 / speedVal).toFixed(2);
       filters.push(`setpts=${ptsFactor}*PTS`);
     }
 
-    // 3. Color Grading (Equalizer)
-    const contrastVal = parseFloat(contrast) || 1.0;
-    const saturationVal = parseFloat(saturation) || 1.0;
-    if (contrastVal !== 1.0 || saturationVal !== 1.0) {
-      filters.push(`eq=contrast=${contrastVal}:saturation=${saturationVal}`);
+    // 3. Cinematic Color Filter Presets
+    if (preset === 'bw') {
+      filters.push('hue=s=0'); // Black & White
+    } else if (preset === 'vintage') {
+      filters.push('colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131'); // Sepia
+    } else if (preset === 'cinematic') {
+      filters.push('eq=contrast=1.3:brightness=0.05:saturation=1.4'); // Film Contrast
+    } else if (preset === 'cold') {
+      filters.push('colorbalance=rs=-0.2:gs=0:bs=0.3'); // Cool Cyan Tint
+    } else if (preset === 'vignette') {
+      filters.push('vignette=PI/4'); // Dark Corner Vignette
     }
 
     let ffmpegCommand = ffmpeg(videoPath);
@@ -256,7 +261,7 @@ router.post('/effects', upload.single('video'), async (req: any, res: any) => {
         res.json({
           success: true,
           file: outputFileName,
-          appliedEffects: { chromaKey, speed, contrast, saturation }
+          appliedEffects: { chromaKey, speed, preset }
         });
       })
       .on('error', (err) => {
