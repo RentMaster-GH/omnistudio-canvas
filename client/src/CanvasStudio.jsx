@@ -11,7 +11,7 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
   PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Unlock, Film, CheckSquare, LogOut,
-  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard, FolderOpen
+  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
@@ -38,6 +38,12 @@ const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
   }
   return fallbackHex;
 };
+
+// --- UNIVERSAL FABRIC CONSTRUCTOR RESOLVERS ---
+const getFabricCanvas = () => fabric.Canvas || (fabric.default && fabric.default.Canvas);
+const getFabricIText = () => fabric.IText || fabric.Textbox || (fabric.default && fabric.default.IText) || (fabric.default && fabric.default.Textbox);
+const getFabricImage = () => fabric.FabricImage || fabric.Image || (fabric.default && fabric.default.Image);
+const getFabricPencilBrush = () => fabric.PencilBrush || (fabric.default && fabric.default.PencilBrush);
 
 // --- REACT ERROR BOUNDARY (PREVENTS BLANK WHITE PAGES) ---
 class StudioErrorBoundary extends Component {
@@ -75,7 +81,6 @@ class StudioErrorBoundary extends Component {
   }
 }
 
-// MAIN STUDIO FUNCTION (NO DUPLICATE DEFAULT EXPORT HERE)
 function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
@@ -93,18 +98,13 @@ function CanvasStudio() {
   // Dynamic Fit Mode State: 'width' | 'page'
   const [fitMode, setFitMode] = useState('width');
 
-  // Layers Manager State (Plain Metadata Array)
+  // Layers Manager State
   const [canvasLayers, setCanvasLayers] = useState([]);
 
-  // NO-SIGN-UP FRICTIONLESS GUEST SESSION
-  const [guestUserId] = useState(() => {
-    let existingId = localStorage.getItem('omnistudio_guest_id');
-    if (!existingId) {
-      existingId = 'guest_' + Math.random().toString(36).substring(2, 11);
-      localStorage.setItem('omnistudio_guest_id', existingId);
-    }
-    return existingId;
-  });
+  // Cloud Sync State
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [projectTitle, setProjectTitle] = useState('My OmniStudio Project');
+  const [mockUserId] = useState('user_' + Math.random().toString(36).substring(7));
 
   const [activeTool, setActiveTool] = useState('hand');
   const activeToolRef = useRef('hand');
@@ -142,7 +142,7 @@ function CanvasStudio() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
   const [videoDuration, setVideoDuration] = useState(30);
-  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas.');
+  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas. Your all-in-one editor for video, audio, and text.');
   
   const [transcriptSegments, setTranscriptSegments] = useState([
     {
@@ -151,7 +151,12 @@ function CanvasStudio() {
       text: 'Welcome to OmniStudio Canvas.',
       start: 0,
       end: 2.5,
-      words: [{ id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 }]
+      words: [
+        { id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 },
+        { id: 'w2', word: 'to', start: 0.6, end: 0.8, confidence: 0.98 },
+        { id: 'w3', word: 'OmniStudio', start: 0.9, end: 1.8, confidence: 0.95 },
+        { id: 'w4', word: 'Canvas.', start: 1.9, end: 2.5, confidence: 0.99 }
+      ]
     }
   ]);
 
@@ -173,9 +178,19 @@ function CanvasStudio() {
     document.head.appendChild(fontLink);
   }, []);
 
-  // Initialize Fabric Canvas
   useEffect(() => {
-    const canvas = new fabric.Canvas(canvasRef.current, {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
+
+  // UNIVERSAL FABRIC CANVAS INITIALIZATION
+  useEffect(() => {
+    const CanvasClass = getFabricCanvas();
+    if (!CanvasClass) {
+      console.error('Fabric Canvas constructor unavailable.');
+      return;
+    }
+
+    const canvas = new CanvasClass(canvasRef.current, {
       width: 820,
       height: 480,
       backgroundColor: '#ffffff',
@@ -212,23 +227,39 @@ function CanvasStudio() {
     });
 
     canvas.on('selection:created', (e) => {
-      const selectedObj = e.selected?.[0];
-      if (selectedObj) {
-        setActiveEditingObject(selectedObj);
-        updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:created', err);
       }
     });
 
     canvas.on('selection:updated', (e) => {
-      const selectedObj = e.selected?.[0];
-      if (selectedObj) {
-        setActiveEditingObject(selectedObj);
-        updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:updated', err);
       }
     });
 
     canvas.on('selection:cleared', () => {
       setActiveEditingObject(null);
+    });
+
+    canvas.on('text:changed', () => {
+      try {
+        saveState(canvas);
+      } catch (err) {
+        console.error('Error on text:changed', err);
+      }
     });
 
     setFabricCanvas(canvas);
@@ -237,7 +268,7 @@ function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- SAFE PLAIN METADATA LAYERS LIST ---
+  // --- LAYERS MANAGER HANDLERS ---
   const updateLayersList = () => {
     if (!fabricCanvas) return;
     try {
@@ -268,7 +299,7 @@ function CanvasStudio() {
     };
   }, [fabricCanvas]);
 
-  // --- PURE FABRIC V5 ADD TEXT FUNCTION ---
+  // --- UNIVERSAL ADD TEXT FUNCTION ---
   const addText = () => {
     if (!fabricCanvas) {
       alert('Please open a PDF or document first.');
@@ -279,7 +310,13 @@ function CanvasStudio() {
       if (!isEditMode) setIsEditMode(true);
       setActiveTool('select');
 
-      const text = new fabric.IText('Type text here...', {
+      const ITextClass = getFabricIText();
+      if (!ITextClass) {
+        alert('Fabric text class unavailable.');
+        return;
+      }
+
+      const text = new ITextClass('Type text here...', {
         left: 200,
         top: 150,
         fontSize: Number(fontSizeVal) || 24,
@@ -302,15 +339,24 @@ function CanvasStudio() {
   };
 
   const updateInspectorFromSelection = (obj) => {
-    if (!obj) return;
+    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text' && obj.type !== 'textbox')) return;
     try {
       if (obj.fontFamily) setFontFamilyVal(obj.fontFamily);
       if (obj.fontSize) setFontSizeVal(obj.fontSize);
-      if (obj.fill) setTextColorVal(ensureValidHexColor(obj.fill, '#0f172a'));
-      if (obj.textBackgroundColor) setTextBgColorVal(ensureValidHexColor(obj.textBackgroundColor, '#ffffff'));
+      if (obj.lineHeight) setLineHeightVal(obj.lineHeight);
+      if (obj.charSpacing !== undefined) setCharSpacingVal(obj.charSpacing);
+      
+      const safeFill = ensureValidHexColor(obj.fill, '#0f172a');
+      setTextColorVal(safeFill);
+
+      const safeBg = ensureValidHexColor(obj.textBackgroundColor, '#ffffff');
+      setTextBgColorVal(safeBg);
+
+      if (obj.opacity !== undefined) setTextOpacityVal(obj.opacity);
       setIsBoldVal(obj.fontWeight === 'bold');
       setIsItalicVal(obj.fontStyle === 'italic');
       setIsUnderlineVal(!!obj.underline);
+      if (obj.textAlign) setTextAlignVal(obj.textAlign);
     } catch (err) {
       console.error('Inspector update error:', err);
     }
@@ -384,10 +430,13 @@ function CanvasStudio() {
       fabricCanvas.setCursor('grab');
     } else if (mode === 'draw') {
       fabricCanvas.isDrawingMode = true;
-      const brush = new fabric.PencilBrush(fabricCanvas);
-      brush.width = 3;
-      brush.color = '#ef4444';
-      fabricCanvas.freeDrawingBrush = brush;
+      const PencilBrushClass = getFabricPencilBrush();
+      if (PencilBrushClass) {
+        const brush = new PencilBrushClass(fabricCanvas);
+        brush.width = 3;
+        brush.color = '#ef4444';
+        fabricCanvas.freeDrawingBrush = brush;
+      }
     } else {
       fabricCanvas.defaultCursor = 'default';
       fabricCanvas.setCursor('default');
@@ -423,7 +472,8 @@ function CanvasStudio() {
     await page.render({ canvasContext: context, viewport }).promise;
 
     const imgData = tempCanvas.toDataURL('image/png');
-    const imgObj = await fabric.FabricImage.fromURL(imgData);
+    const ImageClass = getFabricImage();
+    const imgObj = await ImageClass.fromURL(imgData);
 
     const left = (canvasWidth - imgObj.width) / 2;
     const top = (canvasHeight - imgObj.height) / 2;
