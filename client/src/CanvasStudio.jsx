@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as fabric from 'fabric';
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
+import { jsPDF } from 'jspdf';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
   Music, Play, Pause, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
@@ -10,10 +11,11 @@ import {
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
   PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
-  CloudUpload, CloudDownload, UserCheck
+  FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard
 } from 'lucide-react';
 
 import TimelineEditor from './components/TimelineEditor';
+import TranscriptEditor from './components/TranscriptEditor';
 import { SupabaseService } from './services/supabaseService';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
@@ -22,17 +24,39 @@ const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
   : 'https://omnistudio-canvas-api.onrender.com/api';
 
+/**
+ * Helper: Guarantees a strict 7-character #RRGGBB hex string to prevent 
+ * React DOM crashes inside <input type="color" />
+ */
+const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
+  if (!color || typeof color !== 'string') return fallbackHex;
+  if (color.startsWith('#')) {
+    if (color.length === 7) return color;
+    if (color.length === 4) {
+      return '#' + color[1] + color[1] + color[2] + color[2] + color[3] + color[3];
+    }
+  }
+  return fallbackHex;
+};
+
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
+  
+  // Office Fluent UI Active Tab: 'home' | 'insert' | 'annotate' | 'page' | 'media'
+  const [fluentTab, setFluentTab] = useState('home');
   const [activePortal, setActivePortal] = useState('pdf');
+  
   const [darkMode, setDarkMode] = useState(true);
   const [status, setStatus] = useState('Ready - View Mode');
 
   const [isEditMode, setIsEditMode] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState(null);
+
+  // Dynamic Fit Mode State: 'width' | 'page'
+  const [fitMode, setFitMode] = useState('width');
 
   // Cloud Sync State
   const [currentProjectId, setCurrentProjectId] = useState(null);
@@ -50,9 +74,11 @@ export default function CanvasStudio() {
   const [redoStack, setRedoStack] = useState([]);
   const [pendingRedactionsCount, setPendingRedactionsCount] = useState(0);
 
-  // Text Inspector State
+  // Typography State
   const [fontFamilyVal, setFontFamilyVal] = useState('Arial');
   const [fontSizeVal, setFontSizeVal] = useState(24);
+  const [lineHeightVal, setLineHeightVal] = useState(1.16);
+  const [charSpacingVal, setCharSpacingVal] = useState(0);
   const [textColorVal, setTextColorVal] = useState('#0f172a');
   const [textBgColorVal, setTextBgColorVal] = useState('#ffffff');
   const [textOpacityVal, setTextOpacityVal] = useState(1.0);
@@ -68,15 +94,47 @@ export default function CanvasStudio() {
 
   const [zoomLevel, setZoomLevel] = useState(1.0);
 
-  // Video Portal & Timeline State
+  // Video Portal, Timeline & Transcription State
   const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
   const [videoDuration, setVideoDuration] = useState(30);
-  const [transcriptionText, setTranscriptionText] = useState('');
+  const [transcriptionText, setTranscriptionText] = useState('Welcome to OmniStudio Canvas. Your all-in-one editor for video, audio, and text.');
+  
+  const [transcriptSegments, setTranscriptSegments] = useState([
+    {
+      id: 'seg-1',
+      speaker: 'Speaker 1',
+      text: 'Welcome to OmniStudio Canvas.',
+      start: 0,
+      end: 2.5,
+      words: [
+        { id: 'w1', word: 'Welcome', start: 0, end: 0.5, confidence: 0.99 },
+        { id: 'w2', word: 'to', start: 0.6, end: 0.8, confidence: 0.98 },
+        { id: 'w3', word: 'OmniStudio', start: 0.9, end: 1.8, confidence: 0.95 },
+        { id: 'w4', word: 'Canvas.', start: 1.9, end: 2.5, confidence: 0.99 }
+      ]
+    },
+    {
+      id: 'seg-2',
+      speaker: 'Speaker 1',
+      text: 'Your all-in-one editor for video, audio, and text.',
+      start: 2.8,
+      end: 6.0,
+      words: [
+        { id: 'w5', word: 'Your', start: 2.8, end: 3.1, confidence: 0.97 },
+        { id: 'w6', word: 'all-in-one', start: 3.2, end: 3.9, confidence: 0.96 },
+        { id: 'w7', word: 'editor', start: 4.0, end: 4.5, confidence: 0.99 },
+        { id: 'w8', word: 'for', start: 4.6, end: 4.8, confidence: 0.98 },
+        { id: 'w9', word: 'video,', start: 4.9, end: 5.2, confidence: 0.99 },
+        { id: 'w10', word: 'audio,', start: 5.3, end: 5.6, confidence: 0.99 },
+        { id: 'w11', word: 'and', start: 5.7, end: 5.8, confidence: 0.98 },
+        { id: 'w12', word: 'text.', start: 5.9, end: 6.0, confidence: 0.99 }
+      ]
+    }
+  ]);
 
-  // Sample timeline clips
-  const [clips, setClips] = useState([
+  const [clips] = useState([
     { id: 'c1', trackId: 't1', name: 'Main Video Stream.mp4', type: 'video', timelineStart: 0, duration: 15 },
     { id: 'c2', trackId: 't2', name: 'Background Audio.mp3', type: 'audio', timelineStart: 0, duration: 25 },
     { id: 'c3', trackId: 't4', name: 'Whisper Subtitles', type: 'transcription', timelineStart: 2, duration: 10 },
@@ -130,15 +188,27 @@ export default function CanvasStudio() {
     });
 
     canvas.on('selection:created', (e) => {
-      const selectedObj = e.selected[0];
-      setActiveEditingObject(selectedObj);
-      updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:created', err);
+      }
     });
 
     canvas.on('selection:updated', (e) => {
-      const selectedObj = e.selected[0];
-      setActiveEditingObject(selectedObj);
-      updateInspectorFromSelection(selectedObj);
+      try {
+        const selectedObj = e.selected?.[0];
+        if (selectedObj) {
+          setActiveEditingObject(selectedObj);
+          updateInspectorFromSelection(selectedObj);
+        }
+      } catch (err) {
+        console.error('Error on selection:updated', err);
+      }
     });
 
     canvas.on('selection:cleared', () => {
@@ -146,7 +216,11 @@ export default function CanvasStudio() {
     });
 
     canvas.on('text:changed', () => {
-      saveState(canvas);
+      try {
+        saveState(canvas);
+      } catch (err) {
+        console.error('Error on text:changed', err);
+      }
     });
 
     setFabricCanvas(canvas);
@@ -155,20 +229,135 @@ export default function CanvasStudio() {
     return () => canvas.dispose();
   }, []);
 
-  // --- SUPABASE CLOUD SYNC HANDLERS ---
-  const saveProjectToCloud = async () => {
-    if (!fabricCanvas) return;
-    setStatus('☁️ Saving project state to Supabase Cloud...');
+  // --- PAYSTACK SUBSCRIPTION HANDLER ---
+  const handlePaystackUpgrade = async () => {
+    const userEmail = prompt('Enter your email address to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
+    if (!userEmail) return;
+
+    setStatus('Initializing Paystack Payment Gateway (Cards & Mobile Money)...');
+
     try {
-      const canvasJson = fabricCanvas.toJSON();
-      const savedData = await SupabaseService.saveProject(mockUserId, projectTitle, canvasJson, currentProjectId);
-      if (savedData?.id) setCurrentProjectId(savedData.id);
-      setStatus('✅ Project saved to Supabase Cloud!');
-      alert('🎉 Project successfully backed up to Supabase Cloud!');
+      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
+        userId: mockUserId,
+        email: userEmail,
+        currency: 'USD', // Or 'GHS' for Ghana Cedi
+      });
+
+      if (res.data?.authorizationUrl) {
+        window.location.href = res.data.authorizationUrl;
+      } else {
+        alert('Could not start Paystack checkout. Please check server keys.');
+      }
     } catch (err) {
-      console.error(err);
-      setStatus(`Cloud Save Note: ${err.message || 'Saved locally'}`);
-      alert('Project state saved locally.');
+      console.error('Paystack Checkout Error:', err);
+      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
+    }
+  };
+
+  // --- SAFE ADD TEXT FUNCTION ---
+  const addText = () => {
+    try {
+      if (!isEditMode) setIsEditMode(true);
+      if (!fabricCanvas) return;
+      
+      activateToolMode('select');
+
+      const safeFill = ensureValidHexColor(textColorVal, '#0f172a');
+      const safeBg = textBgColorVal && textBgColorVal.startsWith('#') ? textBgColorVal : 'transparent';
+
+      const textObj = new fabric.IText('Type text here...', { 
+        left: 200, 
+        top: 200, 
+        fontSize: Math.max(12, fontSizeVal || 24), 
+        fontFamily: fontFamilyVal || 'Arial',
+        fill: safeFill,
+        textBackgroundColor: safeBg === '#ffffff' ? 'transparent' : safeBg,
+        opacity: textOpacityVal || 1.0,
+        fontWeight: isBoldVal ? 'bold' : 'normal',
+        fontStyle: isItalicVal ? 'italic' : 'normal',
+        underline: !!isUnderlineVal,
+        textAlign: textAlignVal || 'left',
+        lineHeight: lineHeightVal || 1.16,
+        charSpacing: charSpacingVal || 0,
+        selectable: true,
+        editable: true,
+      });
+
+      fabricCanvas.add(textObj);
+      fabricCanvas.setActiveObject(textObj);
+      setActiveEditingObject(textObj);
+      fabricCanvas.renderAll();
+      saveState(fabricCanvas);
+      setStatus('✏️ Added new editable text box.');
+    } catch (err) {
+      console.error('Error adding text object:', err);
+      setStatus(`Error adding text: ${err.message}`);
+    }
+  };
+
+  const updateInspectorFromSelection = (obj) => {
+    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text' && obj.type !== 'textbox')) return;
+    try {
+      if (obj.fontFamily) setFontFamilyVal(obj.fontFamily);
+      if (obj.fontSize) setFontSizeVal(obj.fontSize);
+      if (obj.lineHeight) setLineHeightVal(obj.lineHeight);
+      if (obj.charSpacing !== undefined) setCharSpacingVal(obj.charSpacing);
+      
+      const safeFill = ensureValidHexColor(obj.fill, '#0f172a');
+      setTextColorVal(safeFill);
+
+      const safeBg = ensureValidHexColor(obj.textBackgroundColor, '#ffffff');
+      setTextBgColorVal(safeBg);
+
+      if (obj.opacity !== undefined) setTextOpacityVal(obj.opacity);
+      setIsBoldVal(obj.fontWeight === 'bold');
+      setIsItalicVal(obj.fontStyle === 'italic');
+      setIsUnderlineVal(!!obj.underline);
+      if (obj.textAlign) setTextAlignVal(obj.textAlign);
+    } catch (err) {
+      console.error('Inspector update error:', err);
+    }
+  };
+
+  const exportCompletePdf = async () => {
+    if (!pdfDoc || !fabricCanvas) {
+      alert('Please upload a PDF document first to export as PDF!');
+      return;
+    }
+
+    setStatus('📄 Compiling all edited pages into downloadable PDF...');
+
+    try {
+      const pdfExport = new jsPDF({
+        orientation: fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [fabricCanvas.width, fabricCanvas.height],
+      });
+
+      const currentPage = pageNum;
+
+      for (let i = 1; i <= totalPages; i++) {
+        setStatus(`📄 Rendering & baking Page ${i} of ${totalPages}...`);
+        await renderPdfPageOntoCanvas(pdfDoc, i, fitMode);
+
+        const pageDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
+
+        if (i > 1) {
+          pdfExport.addPage([fabricCanvas.width, fabricCanvas.height], fabricCanvas.width > fabricCanvas.height ? 'landscape' : 'portrait');
+        }
+
+        pdfExport.addImage(pageDataUrl, 'PNG', 0, 0, fabricCanvas.width, fabricCanvas.height);
+      }
+
+      await renderPdfPageOntoCanvas(pdfDoc, currentPage, fitMode);
+      setPageNum(currentPage);
+
+      pdfExport.save(`omnistudio-edited-document-${Date.now()}.pdf`);
+      setStatus('✅ Multi-Page PDF exported and downloaded successfully!');
+      alert('🎉 Your complete edited PDF document has been downloaded!');
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      setStatus(`Error exporting PDF: ${err.message}`);
     }
   };
 
@@ -190,7 +379,7 @@ export default function CanvasStudio() {
 
     fabricCanvas.loadFromJSON(previousCanvasJson, () => {
       fabricCanvas.renderAll();
-      setStatus('↺ Undo: Reverted to prior document state.');
+      setStatus('↺ Undo Safety Net: Reverted to prior state.');
     });
   };
 
@@ -204,7 +393,7 @@ export default function CanvasStudio() {
 
     fabricCanvas.loadFromJSON(nextCanvasJson, () => {
       fabricCanvas.renderAll();
-      setStatus('↻ Redo: Reinstated edit action.');
+      setStatus('↻ Redo Forward Restorer: Reinstated edit action.');
     });
   };
 
@@ -219,7 +408,7 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
     activateToolMode('select');
     saveState(fabricCanvas);
-    setStatus('Exited text box editing session.');
+    setStatus('Exited text editing session.');
   };
 
   const switchCursorMode = (canvas, nextMode = 'select') => {
@@ -320,7 +509,7 @@ export default function CanvasStudio() {
 
   const executeFlattenPDF = (canvas = fabricCanvas) => {
     if (!canvas) return;
-    if (!confirm('Decompress page structure and merge annotations directly into static base layer?')) {
+    if (!confirm('Flatten PDF Engine:\n\nDecompress page structure and merge annotations directly into static base layer?')) {
       switchCursorMode(canvas, 'select');
       return;
     }
@@ -423,7 +612,7 @@ export default function CanvasStudio() {
         top: pointer.y,
         fontSize: fontSizeVal,
         fontFamily: fontFamilyVal,
-        fill: textColorVal,
+        fill: ensureValidHexColor(textColorVal, '#0f172a'),
       });
 
       canvas.add(newTextBox);
@@ -455,19 +644,6 @@ export default function CanvasStudio() {
 
   const handleVideoLoadedMetadata = () => {
     if (videoRef.current) setVideoDuration(videoRef.current.duration || 30);
-  };
-
-  const updateInspectorFromSelection = (obj) => {
-    if (!obj || (obj.type !== 'i-text' && obj.type !== 'text')) return;
-    setFontFamilyVal(obj.fontFamily || 'Arial');
-    setFontSizeVal(obj.fontSize || 24);
-    setTextColorVal(obj.fill === 'rgba(15, 23, 42, 0.01)' ? '#0f172a' : (obj.fill || '#0f172a'));
-    setTextBgColorVal(obj.textBackgroundColor || '#ffffff');
-    setTextOpacityVal(obj.opacity !== undefined ? obj.opacity : 1.0);
-    setIsBoldVal(obj.fontWeight === 'bold');
-    setIsItalicVal(obj.fontStyle === 'italic');
-    setIsUnderlineVal(!!obj.underline);
-    setTextAlignVal(obj.textAlign || 'left');
   };
 
   const initializeEditProcess = () => {
@@ -525,12 +701,30 @@ export default function CanvasStudio() {
     activateToolMode('pointReplace');
   };
 
-  const renderPdfPageOntoCanvas = async (pdf, pageNumber) => {
+  const renderPdfPageOntoCanvas = async (pdf, pageNumber, mode = fitMode) => {
     if (!pdf || !fabricCanvas) return;
 
     const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.5 });
+    const unscaledViewport = page.getViewport({ scale: 1.0 });
 
+    const canvasWidth = 820;
+    const canvasHeight = 480;
+    const padding = 24;
+
+    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+
+    let computedScale = 1.0;
+
+    if (mode === 'width') {
+      computedScale = (canvasWidth - padding) / unscaledViewport.width;
+    } else {
+      computedScale = Math.min(
+        (canvasWidth - padding) / unscaledViewport.width,
+        (canvasHeight - padding) / unscaledViewport.height
+      );
+    }
+
+    const viewport = page.getViewport({ scale: computedScale });
     const tempCanvas = document.createElement('canvas');
     const context = tempCanvas.getContext('2d');
     tempCanvas.height = viewport.height;
@@ -541,16 +735,8 @@ export default function CanvasStudio() {
     const imgData = tempCanvas.toDataURL('image/png');
     const imgObj = await fabric.FabricImage.fromURL(imgData);
 
-    const canvasWidth = 820;
-    const canvasHeight = 480;
-
-    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
-
-    const scale = Math.min((canvasWidth - 40) / imgObj.width, (canvasHeight - 40) / imgObj.height);
-    imgObj.scale(scale);
-
-    const left = (canvasWidth - imgObj.width * scale) / 2;
-    const top = (canvasHeight - imgObj.height * scale) / 2;
+    const left = (canvasWidth - imgObj.width) / 2;
+    const top = (canvasHeight - imgObj.height) / 2;
 
     imgObj.set({ left, top, selectable: false });
 
@@ -564,9 +750,9 @@ export default function CanvasStudio() {
         if (!item.str || !item.str.trim()) return;
 
         const tx = item.transform;
-        const pdfX = tx[4] * (scale / 1.5) + left;
-        const pdfY = (viewport.height - tx[5]) * (scale / 1.5) + top - 12;
-        const fontSize = Math.max(12, (item.height || 14) * (scale / 1.5));
+        const pdfX = tx[4] * computedScale + left;
+        const pdfY = (unscaledViewport.height - tx[5]) * computedScale + top - (12 * computedScale);
+        const fontSize = Math.max(12, (item.height || 14) * computedScale);
 
         const textObj = new fabric.IText(item.str, {
           left: pdfX,
@@ -588,6 +774,14 @@ export default function CanvasStudio() {
     saveState(fabricCanvas);
   };
 
+  const handleToggleFitMode = (newMode) => {
+    setFitMode(newMode);
+    if (pdfDoc) {
+      renderPdfPageOntoCanvas(pdfDoc, pageNum, newMode);
+      setStatus(`🔍 Fit Mode: ${newMode === 'width' ? 'Fit to Width (page-width)' : 'Fit to Page (page-fit)'}`);
+    }
+  };
+
   const handlePdfDocumentUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -602,7 +796,7 @@ export default function CanvasStudio() {
       setPageNum(1);
 
       generateThumbnails(loadedPdf);
-      await renderPdfPageOntoCanvas(loadedPdf, 1);
+      await renderPdfPageOntoCanvas(loadedPdf, 1, fitMode);
       setStatus(`PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
     } catch (err) {
       setStatus(`Error loading PDF: ${err.message}`);
@@ -628,7 +822,7 @@ export default function CanvasStudio() {
   const changePdfPage = async (newPage) => {
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
     setPageNum(newPage);
-    await renderPdfPageOntoCanvas(pdfDoc, newPage);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage, fitMode);
   };
 
   const handlePrint = () => {
@@ -780,50 +974,22 @@ export default function CanvasStudio() {
   const updateActiveTextProp = (prop, value) => {
     if (!fabricCanvas) return;
     const activeObject = fabricCanvas.getActiveObject();
-    if (activeObject && (activeObject.type === 'i-text' || activeObject.type === 'text')) {
+    if (activeObject && (activeObject.type === 'i-text' || activeObject.type === 'text' || activeObject.type === 'textbox')) {
       activeObject.set(prop, value);
       fabricCanvas.renderAll();
       saveState();
     }
   };
 
-  const alignTextVertical = (pos) => {
+  const changeTextCase = (caseType) => {
     if (!fabricCanvas) return;
-    const activeObject = fabricCanvas.getActiveObject();
-    if (!activeObject) return;
-
-    const canvasHeight = fabricCanvas.height;
-    const objHeight = activeObject.height * (activeObject.scaleY || 1);
-
-    if (pos === 'top') activeObject.set('top', 15);
-    else if (pos === 'middle') activeObject.set('top', (canvasHeight - objHeight) / 2);
-    else if (pos === 'bottom') activeObject.set('top', canvasHeight - objHeight - 15);
-
-    fabricCanvas.renderAll();
-    saveState();
-  };
-
-  const addText = () => {
-    if (!isEditMode) initializeEditProcess();
-    if (!fabricCanvas) return;
-    activateToolMode('select');
-    const text = new fabric.IText('Edit text here', { 
-      left: 150, 
-      top: 150, 
-      fontSize: fontSizeVal, 
-      fontFamily: fontFamilyVal,
-      fill: textColorVal,
-      textBackgroundColor: textBgColorVal === '#ffffff' ? 'transparent' : textBgColorVal,
-      opacity: textOpacityVal,
-      fontWeight: isBoldVal ? 'bold' : 'normal',
-      fontStyle: isItalicVal ? 'italic' : 'normal',
-      underline: isUnderlineVal,
-      textAlign: textAlignVal,
-    });
-    fabricCanvas.add(text);
-    fabricCanvas.setActiveObject(text);
-    setActiveEditingObject(text);
-    saveState();
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && (activeObj.type === 'i-text' || activeObj.type === 'text' || activeObj.type === 'textbox')) {
+      if (caseType === 'upper') activeObj.set('text', activeObj.text.toUpperCase());
+      if (caseType === 'lower') activeObj.set('text', activeObj.text.toLowerCase());
+      fabricCanvas.renderAll();
+      saveState();
+    }
   };
 
   const addWhiteoutEraser = () => {
@@ -924,30 +1090,6 @@ export default function CanvasStudio() {
     fabricCanvas.renderAll();
   };
 
-  const saveProjectJson = () => {
-    if (!fabricCanvas) return;
-    const jsonStr = JSON.stringify(fabricCanvas.toJSON());
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `omnistudio-project-${Date.now()}.json`;
-    link.click();
-    setStatus('Project saved as JSON!');
-  };
-
-  const loadProjectJson = (e) => {
-    const file = e.target.files[0];
-    if (!file || !fabricCanvas) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      fabricCanvas.loadFromJSON(event.target.result, () => {
-        fabricCanvas.renderAll();
-        setStatus('Project JSON loaded onto canvas!');
-      });
-    };
-    reader.readAsText(file);
-  };
-
   const handleImageUpload = (e) => {
     if (!isEditMode) initializeEditProcess();
     const file = e.target.files[0];
@@ -1008,55 +1150,6 @@ export default function CanvasStudio() {
     }
   };
 
-  const handleImageFineTune = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setStatus('Fine-tuning image with Sharp backend...');
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('brightness', imgBrightness);
-    formData.append('blur', imgBlur);
-    formData.append('format', 'png');
-
-    try {
-      const res = await axios.post(`${API_BASE}/image/edit`, formData);
-      const imageUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      const imgObj = await fabric.FabricImage.fromURL(imageUrl);
-      imgObj.scaleToWidth(350);
-      fabricCanvas.add(imgObj);
-      setStatus('Image fine-tuned and added to canvas!');
-    } catch (err) {
-      setStatus(`Error: ${err.message}`);
-    }
-  };
-
-  const handleVideoStitch = async (e) => {
-    e.preventDefault();
-    const videoFile = e.target.video.files[0];
-    const audioFile = e.target.audio.files[0];
-
-    if (!videoFile || !audioFile) {
-      alert('Please select both a video and an audio file.');
-      return;
-    }
-
-    setStatus('Stitching Audio + Video with FFmpeg...');
-    const formData = new FormData();
-    formData.append('video', videoFile);
-    formData.append('audio', audioFile);
-
-    try {
-      const res = await axios.post(`${API_BASE}/video/stitch`, formData);
-      const fileUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
-      setVideoPreviewUrl(fileUrl);
-      setActivePortal('video');
-      setStatus(`Stitching Complete! Video loaded into Video Portal.`);
-    } catch (err) {
-      setStatus(`Error stitching: ${err.message}`);
-    }
-  };
-
   const handleTranscription = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1067,8 +1160,13 @@ export default function CanvasStudio() {
 
     try {
       const res = await axios.post(`${API_BASE}/transcribe`, formData);
-      const text = res.data.transcription.text;
+      const text = res.data.transcript ? res.data.transcript.map(s => s.text).join(' ') : (res.data.transcription?.text || '');
+      const segments = res.data.transcript || res.data.transcription?.segments || [
+        { id: crypto.randomUUID(), text: text || 'Transcribed text output', start: 0, end: 10, words: [] }
+      ];
+
       setTranscriptionText(text);
+      setTranscriptSegments(segments);
 
       const textObj = new fabric.IText(text, { left: 50, top: 350, fontSize: 18, fill: '#1e293b', width: 700, splitByGrapheme: true });
       fabricCanvas.add(textObj);
@@ -1090,7 +1188,14 @@ export default function CanvasStudio() {
       const res = await axios.post(`${API_BASE}/video/auto-subtitle`, formData);
       const videoUrl = `${API_BASE.replace('/api', '')}/outputs/${res.data.file}`;
       setVideoPreviewUrl(videoUrl);
-      setTranscriptionText(res.data.transcriptionText);
+
+      const text = res.data.transcriptionText || '';
+      const segments = res.data.transcript || res.data.transcription?.segments || [
+        { id: crypto.randomUUID(), text: text || 'Subtitled video text', start: 0, end: 10, words: [] }
+      ];
+
+      setTranscriptionText(text);
+      setTranscriptSegments(segments);
       setActivePortal('video');
       setStatus(`Subtitled video ready! Playing in Video Portal...`);
     } catch (err) {
@@ -1155,6 +1260,29 @@ export default function CanvasStudio() {
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
+        {/* PAYSTACK UPGRADE PRO BUTTON (GREEN ACCENT) */}
+        <button 
+          onClick={handlePaystackUpgrade}
+          title="Upgrade to Pro with Mobile Money or Card"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            padding: '3px 10px',
+            backgroundColor: '#059669', // Paystack Green Accent
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+          }}
+        >
+          ⚡ Upgrade Pro ($9/mo - MoMo/Card)
+        </button>
+
         <button title="Complete & Finalize" onClick={handleDone} style={doneHeaderBtnStyle}><CheckCircle2 size={13} /> Done</button>
 
         <div style={{ marginLeft: 'auto' }}>
@@ -1176,20 +1304,18 @@ export default function CanvasStudio() {
 
             <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
-            {/* ENHANCEMENT 2: THE SAFETY NET UNDO BUTTON */}
-            <button title="Undo Safety Net: Reverse last edit command & restore content/formatting" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}>
+            <button title="Undo Safety Net" onClick={handleUndo} disabled={undoStack.length <= 1} style={iconToolBtnStyle(false)}>
               <RotateCcw size={14} />
             </button>
 
-            {/* ENHANCEMENT 3: THE FORWARD RESTORER REDO BUTTON */}
-            <button title="Redo Forward Restorer: Reinstate exact action removed by Undo" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}>
+            <button title="Redo Forward Restorer" onClick={handleRedo} disabled={redoStack.length === 0} style={iconToolBtnStyle(false)}>
               <RotateCw size={14} />
             </button>
             
             <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
             <button title="Select Tool" onClick={() => activateToolMode('select')} style={iconToolBtnStyle(activeTool === 'select')}><MousePointer size={14} /></button>
-            <button title="Hand / Drag-to-Pan Viewport Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
+            <button title="Hand Tool" onClick={() => activateToolMode('hand')} style={iconToolBtnStyle(activeTool === 'hand')}><Hand size={14} /></button>
 
             <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
@@ -1197,25 +1323,25 @@ export default function CanvasStudio() {
               <Type size={14} /> Text
             </button>
 
-            <button title="Redact & Overlay (Step 1: Highlight Area)" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
+            <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
               <ShieldAlert size={14} /> Redact
             </button>
 
             {pendingRedactionsCount > 0 && (
-              <button title="Step 2 Execution: Excise Data & Burn Opaque Overlay" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
+              <button title="Apply Redactions" onClick={applyAllRedactions} style={prominentBtnStyle('#16a34a')}>
                 <CheckSquare size={14} /> Apply Redactions ({pendingRedactionsCount})
               </button>
             )}
 
-            <button title="Flatten PDF (Bake Annotation Layer to Content Layer)" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
+            <button title="Flatten PDF" onClick={activateFlattenMode} style={prominentBtnStyle(activeTool === 'flatten' ? '#6b21a8' : '#8b5cf6')}>
               <Lock size={14} /> Flatten PDF
             </button>
 
-            <button title="Find & Replace with Intelligent Text Reflow & Kerning" onClick={handleFindAndReplaceWithReflow} style={prominentBtnStyle('#0284c7')}>
+            <button title="Find & Replace" onClick={handleFindAndReplaceWithReflow} style={prominentBtnStyle('#0284c7')}>
               <RefreshCw size={14} /> Find & Replace
             </button>
 
-            <button title="Point & Replace (Hit-Test Direct Word Processor Text Editing)" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
+            <button title="Point & Replace" onClick={activatePointToReplace} style={prominentBtnStyle(activeTool === 'pointReplace' ? '#d97706' : '#f59e0b')}>
               <Target size={14} /> Point & Replace
             </button>
 
@@ -1227,11 +1353,11 @@ export default function CanvasStudio() {
               <Pencil size={14} /> Draw
             </button>
 
-            <button title="Add Green Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
+            <button title="Add Checkmark" onClick={addCheckmark} style={prominentBtnStyle('#10b981')}>
               <Check size={14} /> Check
             </button>
 
-            <button title="Add Red Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
+            <button title="Add Crossmark" onClick={addCrossmark} style={prominentBtnStyle('#ef4444')}>
               <X size={14} /> Cross
             </button>
 
@@ -1239,7 +1365,7 @@ export default function CanvasStudio() {
               <PenTool size={14} /> Sign
             </button>
 
-            <button title="Attach URL Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
+            <button title="Attach Link" onClick={attachLinkToSelection} style={prominentBtnStyle('#0284c7')}>
               <Link size={14} /> Links
             </button>
 
@@ -1288,22 +1414,6 @@ export default function CanvasStudio() {
                   <button onClick={() => addShape('polygon')} style={dropdownItemStyle}><Triangle size={13} /> Polygon / Triangle</button>
                   <button onClick={() => addShape('polyline')} style={dropdownItemStyle}><Activity size={13} /> Polyline Path</button>
                   <button onClick={() => addShape('cloud')} style={dropdownItemStyle}><Cloud size={13} color="#ef4444" /> Revision Cloud Polygon</button>
-                </div>
-              )}
-            </div>
-
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setActiveDropdown(activeDropdown === 'moreTools' ? null : 'moreTools')} style={prominentBtnStyle('#475569')}>
-                More Tools <ChevronRight size={11} />
-              </button>
-              {activeDropdown === 'moreTools' && (
-                <div style={dropdownMenuStyle(bgBar, borderCol)}>
-                  <button onClick={handleCropTool} style={dropdownItemStyle}><Crop size={13} /> Crop Image / Page</button>
-                  <button onClick={() => handleZoom(zoomLevel + 0.1)} style={dropdownItemStyle}><ZoomIn size={13} /> Zoom In (+)</button>
-                  <button onClick={() => handleZoom(zoomLevel - 0.1)} style={dropdownItemStyle}><ZoomOut size={13} /> Zoom Out (-)</button>
-                  <hr style={{ borderColor: borderCol, margin: '3px 0' }} />
-                  <button onClick={handlePageLayoutToggle} style={dropdownItemStyle}><Layout size={13} /> Page Layout (Portrait/Landscape)</button>
-                  <button onClick={handleManagePages} style={dropdownItemStyle}><FileCog size={13} /> Manage Pages (Delete/Rotate)</button>
                 </div>
               )}
             </div>
@@ -1367,11 +1477,10 @@ export default function CanvasStudio() {
       <div style={{ height: '36px', minHeight: '36px', backgroundColor: bgBar, borderBottom: `1px solid ${borderCol}`, display: 'flex', alignItems: 'center', padding: '0 10px', gap: '8px', zIndex: 25, boxSizing: 'border-box', overflowX: 'auto' }}>
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#0284c7', whiteSpace: 'nowrap' }}>Text Inspector:</span>
 
-        {/* ENHANCEMENT 1: EXIT / CLOSE TEXT BOX BUTTON IN INSPECTOR BAR */}
         {activeEditingObject && (
           <button 
             onClick={exitTextEditing} 
-            title="Exit Text Box Editing Focus to perform other tasks" 
+            title="Exit Text Box Editing Focus" 
             style={prominentBtnStyle('#ef4444')}
           >
             <LogOut size={12} /> Exit Text Box / Done
@@ -1422,12 +1531,22 @@ export default function CanvasStudio() {
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           Font Color:
-          <input type="color" value={textColorVal} onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+          <input 
+            type="color" 
+            value={ensureValidHexColor(textColorVal, '#0f172a')} 
+            onChange={(e) => { setTextColorVal(e.target.value); updateActiveTextProp('fill', e.target.value); }} 
+            style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+          />
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
           BG Color:
-          <input type="color" value={textBgColorVal} onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} />
+          <input 
+            type="color" 
+            value={ensureValidHexColor(textBgColorVal, '#ffffff')} 
+            onChange={(e) => { setTextBgColorVal(e.target.value); updateActiveTextProp('textBackgroundColor', e.target.value); }} 
+            style={{ width: '20px', height: '20px', border: 'none', cursor: 'pointer', backgroundColor: 'transparent' }} 
+          />
         </label>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
@@ -1479,7 +1598,6 @@ export default function CanvasStudio() {
               {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
               <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
                 
-                {/* FLOATING EXIT / CLOSE BUTTON OVER ACTIVE CANVAS TEXT BOX */}
                 {activeEditingObject && (
                   <button 
                     onClick={exitTextEditing}
@@ -1535,7 +1653,6 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* Standalone Video Player Screen */}
               <div style={{ width: '100%', height: '420px', backgroundColor: '#000000', borderRadius: '8px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center', border: `1px solid ${borderCol}` }}>
                 {videoPreviewUrl ? (
                   <video
@@ -1554,7 +1671,6 @@ export default function CanvasStudio() {
                 )}
               </div>
 
-              {/* MULTI-TRACK NLE TIMELINE EDITOR INTEGRATION */}
               <TimelineEditor 
                 tracks={[
                   { id: 't1', name: 'Video Track 1', type: 'video', isMuted: false, isLocked: false },
