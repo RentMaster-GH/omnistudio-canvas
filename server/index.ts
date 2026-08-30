@@ -6,7 +6,6 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import axios from 'axios';
-import crypto from 'crypto';
 
 import imageRoutes from './routes/image';
 import videoRoutes from './routes/video';
@@ -17,8 +16,6 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'pk_live_1ce038da68ee109f5e603f5b816613d9cf261be5';
 
 const uploadDir = path.join(__dirname, '../uploads');
 const outputDir = path.join(__dirname, '../outputs');
@@ -35,17 +32,17 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // Serve static assets
 app.use('/outputs', express.static(outputDir));
 
-// Mount Sub-Routers
-app.use('/api/image', imageRoutes);
-app.use('/api/video', videoRoutes);
+// Sub-Routers (Listen on both /api and root paths for Vercel)
+app.use(['/api/image', '/image'], imageRoutes);
+app.use(['/api/video', '/video'], videoRoutes);
 
 /**
- * Direct Paystack Payment Initialization Endpoint
- * POST /api/billing/initialize-paystack
+ * Paystack Initialization Handler (Dual Route Matcher)
  */
-app.post('/api/billing/initialize-paystack', async (req: any, res: any) => {
+const handlePaystackInit = async (req: any, res: any) => {
   try {
     const { userId, email, currency = 'USD' } = req.body;
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_live_d96ea8cd0408fc378c636d1c64a06c8c954266fa';
 
     if (!email) {
       return res.status(400).json({ error: 'User email is required for Paystack checkout.' });
@@ -87,15 +84,15 @@ app.post('/api/billing/initialize-paystack', async (req: any, res: any) => {
       details: err.response?.data?.message || err.message,
     });
   }
-});
+};
 
 /**
- * Direct Paystack Verification Endpoint
- * GET /api/billing/verify-paystack/:reference
+ * Paystack Verification Handler (Dual Route Matcher)
  */
-app.get('/api/billing/verify-paystack/:reference', async (req: any, res: any) => {
+const handlePaystackVerify = async (req: any, res: any) => {
   try {
     const { reference } = req.params;
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_placeholder';
 
     const response = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
@@ -114,13 +111,16 @@ app.get('/api/billing/verify-paystack/:reference', async (req: any, res: any) =>
   } catch (err: any) {
     return res.status(500).json({ error: 'Verification failed', details: err.message });
   }
-});
+};
+
+// Register Paystack endpoints on both Vercel path variations
+app.post(['/api/billing/initialize-paystack', '/billing/initialize-paystack'], handlePaystackInit);
+app.get(['/api/billing/verify-paystack/:reference', '/billing/verify-paystack/:reference'], handlePaystackVerify);
 
 /**
- * Direct Whisper AI Transcription Route
- * POST /api/transcribe
+ * Whisper AI Transcription Route (Dual Route Matcher)
  */
-app.post('/api/transcribe', upload.single('file'), async (req: any, res: any) => {
+const handleTranscribe = async (req: any, res: any) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No media file provided.' });
   }
@@ -145,10 +145,12 @@ app.post('/api/transcribe', upload.single('file'), async (req: any, res: any) =>
     cleanupFile(inputPath);
     if (convertedAudioPath) cleanupFile(convertedAudioPath);
   }
-});
+};
+
+app.post(['/api/transcribe', '/transcribe'], upload.single('file'), handleTranscribe);
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({ status: 'ok', server: 'OmniStudio Canvas API' });
 });
 
