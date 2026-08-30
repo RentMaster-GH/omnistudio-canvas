@@ -6,11 +6,11 @@ import { jsPDF } from 'jspdf';
 import { 
   Type, Image as ImageIcon, Video, Mic, Download, Trash2, Sliders, FileText, 
   Music, Play, Pause, Captions, Save, Upload, Layers, Sun, Moon, Eraser, ChevronLeft, 
-  ChevronRight, Eye, PanelLeftClose, PanelLeftOpen, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
+  ChevronRight, Eye, EyeOff, PanelLeftClose, PanelLeftOpen, ZoomIn, ZoomOut, RotateCcw, RotateCw, Hand, MousePointer, 
   Highlighter, Pencil, Stamp, Square, Circle, Minus, Cloud, ChevronDown,
   AlignLeft, AlignCenter, AlignRight, AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   MoveRight, Triangle, Activity, Search, Printer, Share2, CheckCircle2, Check, X,
-  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Film, CheckSquare, LogOut,
+  PenTool, Link, Crop, Layout, FileCog, RefreshCw, Target, Edit3, ShieldAlert, Lock, Unlock, Film, CheckSquare, LogOut,
   FileDown, Maximize2, MoveHorizontal, Baseline, CaseUpper, CaseLower, CreditCard
 } from 'lucide-react';
 
@@ -43,6 +43,7 @@ const ensureValidHexColor = (color, fallbackHex = '#0f172a') => {
 export default function CanvasStudio() {
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
+  const copiedObjectRef = useRef(null);
 
   const [fabricCanvas, setFabricCanvas] = useState(null);
   const [activePortal, setActivePortal] = useState('pdf');
@@ -55,6 +56,9 @@ export default function CanvasStudio() {
 
   // Dynamic Fit Mode State: 'width' | 'page'
   const [fitMode, setFitMode] = useState('width');
+
+  // Layers Manager State
+  const [canvasLayers, setCanvasLayers] = useState([]);
 
   // Cloud Sync State
   const [currentProjectId, setCurrentProjectId] = useState(null);
@@ -234,6 +238,199 @@ export default function CanvasStudio() {
 
     return () => canvas.dispose();
   }, []);
+
+  // --- LAYERS MANAGER HANDLERS ---
+  const updateLayersList = () => {
+    if (!fabricCanvas) return;
+    const objs = fabricCanvas.getObjects().slice().reverse(); // Reverse so top layer is first
+    setCanvasLayers(objs);
+  };
+
+  useEffect(() => {
+    if (!fabricCanvas) return;
+    fabricCanvas.on('object:added', updateLayersList);
+    fabricCanvas.on('object:removed', updateLayersList);
+    fabricCanvas.on('object:modified', updateLayersList);
+    return () => {
+      fabricCanvas.off('object:added', updateLayersList);
+      fabricCanvas.off('object:removed', updateLayersList);
+      fabricCanvas.off('object:modified', updateLayersList);
+    };
+  }, [fabricCanvas]);
+
+  const bringLayerToFront = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.bringObjectToFront(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const sendLayerToBack = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    fabricCanvas.sendObjectToBack(obj);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerLock = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    const isLocked = !obj.selectable;
+    obj.set({
+      selectable: isLocked,
+      evented: isLocked,
+    });
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  const toggleLayerVisibility = (obj) => {
+    if (!fabricCanvas || !obj) return;
+    obj.set('visible', !obj.visible);
+    fabricCanvas.renderAll();
+    updateLayersList();
+    saveState();
+  };
+
+  // --- GLOBAL KEYBOARD SHORTCUTS ENGINE ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const targetTag = e.target ? e.target.tagName.toLowerCase() : '';
+      const isEditingText = targetTag === 'input' || targetTag === 'textarea' || (fabricCanvas && fabricCanvas.getActiveObject()?.isEditing);
+
+      if (isEditingText) return;
+
+      // 1. SPACEBAR: Toggle Timeline Play / Pause
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlayPause();
+      }
+
+      // 2. DELETE / BACKSPACE: Remove Selected Canvas Element
+      if (e.code === 'Delete' || e.code === 'Backspace') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const activeObjs = fabricCanvas.getActiveObjects();
+          activeObjs.forEach((obj) => fabricCanvas.remove(obj));
+          fabricCanvas.discardActiveObject();
+          fabricCanvas.renderAll();
+          saveState();
+          setStatus('🗑️ Deleted selected element(s)');
+        }
+      }
+
+      // 3. CTRL+Z / CMD+Z: Undo
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+
+      // 4. CTRL+Y / CTRL+SHIFT+Z: Redo
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')) {
+        e.preventDefault();
+        handleRedo();
+      }
+
+      // 5. CTRL+C: Copy Selected Element
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const activeObj = fabricCanvas.getActiveObject();
+          if (activeObj) {
+            if (activeObj.clone.length > 0) {
+              activeObj.clone((cloned) => {
+                copiedObjectRef.current = cloned;
+                setStatus('📋 Copied element to clipboard');
+              });
+            } else {
+              Promise.resolve(activeObj.clone()).then((cloned) => {
+                copiedObjectRef.current = cloned;
+                setStatus('📋 Copied element to clipboard');
+              });
+            }
+          }
+        }
+      }
+
+      // 6. CTRL+V: Paste Copied Element
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        if (fabricCanvas && copiedObjectRef.current) {
+          const handleClonedPaste = (clonedObj) => {
+            fabricCanvas.discardActiveObject();
+            clonedObj.set({
+              left: clonedObj.left + 20,
+              top: clonedObj.top + 20,
+              evented: true,
+            });
+            if (clonedObj.type === 'activeSelection') {
+              clonedObj.canvas = fabricCanvas;
+              clonedObj.forEachObject((obj) => fabricCanvas.add(obj));
+              clonedObj.setCoordinates();
+            } else {
+              fabricCanvas.add(clonedObj);
+            }
+            fabricCanvas.setActiveObject(clonedObj);
+            fabricCanvas.requestRenderAll();
+            saveState();
+            setStatus('📄 Pasted element onto canvas');
+          };
+
+          if (copiedObjectRef.current.clone.length > 0) {
+            copiedObjectRef.current.clone(handleClonedPaste);
+          } else {
+            Promise.resolve(copiedObjectRef.current.clone()).then(handleClonedPaste);
+          }
+        }
+      }
+
+      // 7. CTRL+A: Select All Canvas Objects
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        if (fabricCanvas) {
+          const objs = fabricCanvas.getObjects();
+          if (objs.length > 0) {
+            const selection = new fabric.ActiveSelection(objs, { canvas: fabricCanvas });
+            fabricCanvas.setActiveObject(selection);
+            fabricCanvas.renderAll();
+            setStatus('✨ Selected all canvas elements');
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [fabricCanvas, undoStack, redoStack, isPlaying]);
+
+  // --- ASPECT RATIO PRESETS HANDLER ---
+  const applyCanvasPresetRatio = (preset) => {
+    if (!fabricCanvas) return;
+
+    let width = 820;
+    let height = 480;
+
+    if (preset === '16:9') {
+      width = 854;  // YouTube Video (16:9)
+      height = 480;
+    } else if (preset === '9:16') {
+      width = 360;  // TikTok / Reels / Shorts (9:16)
+      height = 640;
+    } else if (preset === '1:1') {
+      width = 500;  // Instagram Post Square (1:1)
+      height = 500;
+    } else if (preset === 'A4') {
+      width = 595;  // Standard A4 Print Document
+      height = 842;
+    }
+
+    fabricCanvas.setDimensions({ width, height });
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus(`📐 Resized Canvas Preset to ${preset} (${width}x${height}px)`);
+  };
 
   // --- TEXT EFFECTS HANDLERS ---
   const applyTextShadow = (shadowColor = '#000000', blur = 8) => {
@@ -1331,7 +1528,7 @@ export default function CanvasStudio() {
         <button title="Download Page" onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download</button>
         <button title="Share Document" onClick={handleShare} style={globalHeaderBtnStyle}><Share2 size={13} /> Share</button>
 
-        {/* PAYSTACK UPGRADE PRO BUTTON */}
+        {/* PAYSTACK UPGRADE PRO BUTTON (GREEN ACCENT) */}
         <button 
           onClick={handlePaystackUpgrade}
           title="Upgrade to Pro with Mobile Money or Card"
@@ -1340,7 +1537,7 @@ export default function CanvasStudio() {
             alignItems: 'center',
             gap: '4px',
             padding: '3px 10px',
-            backgroundColor: '#059669', // Paystack Green Accent
+            backgroundColor: '#059669',
             color: '#ffffff',
             border: 'none',
             borderRadius: '3px',
@@ -1398,6 +1595,14 @@ export default function CanvasStudio() {
             <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
               💧 Watermark Document
             </button>
+
+            {/* ASPECT RATIO PRESETS SELECTOR */}
+            <div style={{ display: 'flex', gap: '3px', borderLeft: `1px solid ${borderCol}`, borderRight: `1px solid ${borderCol}`, padding: '0 6px' }}>
+              <button title="YouTube Widescreen (16:9)" onClick={() => applyCanvasPresetRatio('16:9')} style={inspectorToggleBtnStyle(false)}>16:9</button>
+              <button title="TikTok / Reels Vertical (9:16)" onClick={() => applyCanvasPresetRatio('9:16')} style={inspectorToggleBtnStyle(false)}>9:16</button>
+              <button title="Instagram Square (1:1)" onClick={() => applyCanvasPresetRatio('1:1')} style={inspectorToggleBtnStyle(false)}>1:1</button>
+              <button title="A4 Print Document" onClick={() => applyCanvasPresetRatio('A4')} style={inspectorToggleBtnStyle(false)}>A4</button>
+            </div>
 
             <button title="Redact & Overlay" onClick={activateRedactMode} style={prominentBtnStyle(activeTool === 'redact' ? '#991b1b' : '#dc2626')}>
               <ShieldAlert size={14} /> Redact
@@ -1709,56 +1914,103 @@ export default function CanvasStudio() {
               </div>
             )}
 
-            <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', boxSizing: 'border-box' }}>
-              <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
-                  <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
-                  <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
-                  <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
-                  <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+            <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: '16px', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '820px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#38bdf8' }}>Status: {status}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: bgBar, padding: '2px 8px', borderRadius: '4px', border: `1px solid ${borderCol}` }}>
+                    <button title="Zoom Out" onClick={() => handleZoom(zoomLevel - 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomOut size={13} /></button>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', width: '40px', textAlign: 'center' }}>{Math.round(zoomLevel * 100)}%</span>
+                    <button title="Zoom In" onClick={() => handleZoom(zoomLevel + 0.1)} style={{ background: 'transparent', border: 'none', color: textColor, cursor: 'pointer' }}><ZoomIn size={13} /></button>
+                    <button title="Fit Viewport" onClick={resetZoom} style={{ background: 'transparent', border: 'none', color: '#0284c7', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginLeft: '4px' }}>Fit</button>
+                  </div>
                 </div>
+
+                {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
+                <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
+                  
+                  {activeEditingObject && (
+                    <button 
+                      onClick={exitTextEditing}
+                      style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        backgroundColor: '#ef4444',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        zIndex: 100,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                      }}
+                      title="Exit Text Editing Session & Deselect"
+                    >
+                      <X size={12} /> Close Text Box
+                    </button>
+                  )}
+
+                  <canvas ref={canvasRef} />
+                </div>
+
+                {transcriptionText && (
+                  <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px' }}>
+                    <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
+                    <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
+                  </div>
+                )}
               </div>
 
-              {/* CANVAS CONTAINER WITH FLOATING EXIT BUTTON FOR TEXT BOXES */}
-              <div style={{ position: 'relative', border: `2px solid ${borderCol}`, boxShadow: '0 8px 12px -3px rgba(0,0,0,0.3)', borderRadius: '4px', overflow: 'hidden' }}>
-                
-                {activeEditingObject && (
-                  <button 
-                    onClick={exitTextEditing}
-                    style={{
-                      position: 'absolute',
-                      top: '10px',
-                      right: '10px',
-                      backgroundColor: '#ef4444',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      padding: '4px 8px',
-                      fontSize: '11px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      zIndex: 100,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                    }}
-                    title="Exit Text Editing Session & Deselect"
-                  >
-                    <X size={12} /> Close Text Box
-                  </button>
+              {/* VISUAL LAYERS MANAGER PANEL SIDEBAR */}
+              <div style={{ width: '200px', minWidth: '200px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '10px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Layers size={14} /> Layers Stack ({canvasLayers.length})
+                </span>
+
+                {canvasLayers.length === 0 && (
+                  <p style={{ fontSize: '10px', color: '#94a3b8' }}>No layers on canvas yet. Add text, shapes, or images.</p>
                 )}
 
-                <canvas ref={canvasRef} />
+                {canvasLayers.map((obj, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => { fabricCanvas.setActiveObject(obj); fabricCanvas.renderAll(); }}
+                    style={{
+                      padding: '6px 8px',
+                      backgroundColor: fabricCanvas?.getActiveObject() === obj ? 'rgba(2, 132, 199, 0.15)' : 'transparent',
+                      border: `1px solid ${fabricCanvas?.getActiveObject() === obj ? '#0284c7' : borderCol}`,
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '11px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85px' }}>
+                      {obj.text ? `"${obj.text.substring(0, 10)}..."` : (obj.type || 'Layer')}
+                    </span>
+
+                    <div style={{ display: 'flex', gap: '3px' }}>
+                      <button title="Bring to Front" onClick={(e) => { e.stopPropagation(); bringLayerToFront(obj); }} style={miniLayerBtnStyle}>↑</button>
+                      <button title="Send to Back" onClick={(e) => { e.stopPropagation(); sendLayerToBack(obj); }} style={miniLayerBtnStyle}>↓</button>
+                      <button title="Lock / Unlock" onClick={(e) => { e.stopPropagation(); toggleLayerLock(obj); }} style={miniLayerBtnStyle}>
+                        {obj.selectable === false ? <Lock size={10} color="#f59e0b" /> : <Unlock size={10} />}
+                      </button>
+                      <button title="Show / Hide" onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(obj); }} style={miniLayerBtnStyle}>
+                        {obj.visible === false ? <EyeOff size={10} color="#ef4444" /> : <Eye size={10} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              {transcriptionText && (
-                <div style={{ width: '820px', backgroundColor: bgBar, border: `1px solid ${borderCol}`, padding: '12px', borderRadius: '6px' }}>
-                  <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 4px 0' }}>Transcription Output:</h3>
-                  <p style={{ fontSize: '12px', margin: 0, lineHeight: '1.4' }}>{transcriptionText}</p>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1821,7 +2073,17 @@ export default function CanvasStudio() {
   );
 }
 
-// Button & Dropdown Styles
+// Button & Helper Styles
+const miniLayerBtnStyle = {
+  background: 'transparent',
+  border: 'none',
+  color: 'inherit',
+  cursor: 'pointer',
+  padding: '2px 4px',
+  fontSize: '10px',
+  borderRadius: '2px',
+};
+
 const portalTabStyle = (active) => ({
   display: 'flex',
   alignItems: 'center',
