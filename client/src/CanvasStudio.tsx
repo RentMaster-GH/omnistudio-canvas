@@ -715,37 +715,45 @@ function CanvasStudio() {
     saveState();
   };
 
-  // --- UPGRADED EMAIL-LESS & GEO-IP PAYSTACK CHECKOUT ---
-  const handlePaystackUpgrade = async () => {
-    try {
-      setStatus('⚡ Detecting location & initializing seamless Paystack payment...');
+  // --- PAYSTACK INLINE POPUP CHECKOUT (ZERO BACKEND DEPENDENCY) ---
+  const handlePaystackUpgrade = () => {
+    setStatus('⚡ Opening Paystack Checkout...');
 
-      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-      const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
-        userId: guestUserId,
-        timeZone: timeZone,
-        callbackUrl: window.location.href,
-      });
-
-      if (res.data?.success && res.data?.authorizationUrl) {
-        setStatus(`💳 Redirecting to localized checkout (${res.data.currency || 'local'})...`);
-        window.location.href = res.data.authorizationUrl;
-      } else {
-        alert('Could not start Paystack checkout. Please check server configuration.');
-      }
-    } catch (err: any) {
-      console.error('Paystack Checkout Detailed Error:', err.response?.data || err);
-
-      // Safe Extraction of Error Text (Unrolls Nested Objects)
-      let rawErr = err.response?.data?.error || err.response?.data?.details || err.response?.data?.message || err.message;
-
-      if (typeof rawErr === 'object') {
-        rawErr = rawErr.message || rawErr.error || JSON.stringify(rawErr);
-      }
-
-      alert(`Paystack Checkout Error: ${rawErr}`);
+    // 1. Inject Paystack Inline Popup Script if not already present
+    if (!(window as any).PaystackPop) {
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => triggerPaystackPopup();
+      document.body.appendChild(script);
+    } else {
+      triggerPaystackPopup();
     }
+  };
+
+  const triggerPaystackPopup = () => {
+    // Put your Paystack Public Key here (from Paystack Dashboard -> Settings -> API Keys)
+    const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_1ce038da68ee109f5e603f5b816613d9cf261be5';
+
+    // Auto-generate anonymous placeholder email
+    const dummyEmail = `anonymous_${guestUserId}@omnistudio.internal`;
+
+    const handler = (window as any).PaystackPop.setup({
+      key: PAYSTACK_PUBLIC_KEY,
+      email: dummyEmail,
+      amount: 12000, // 120 GHS = 12,000 Pesewas (or 500000 Kobo for NGN)
+      currency: 'GHS', // Your primary merchant currency (GHS, NGN, or USD)
+      ref: `omni_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      callback: (response: any) => {
+        setStatus('🎉 Payment successful! Ref: ' + response.reference);
+        alert('🎉 Payment successful! Thank you for upgrading to OmniStudio Pro.');
+      },
+      onClose: () => {
+        setStatus('Ready - View Mode');
+      },
+    });
+
+    handler.openIframe();
   };
 
   const addText = () => {
