@@ -4,6 +4,7 @@ import { VideoNode } from '../nodes/VideoNode';
 import { DocumentNode } from '../nodes/DocumentNode';
 import { TextFormattingToolbar } from '../toolbar/TextFormattingToolbar';
 import { Minimap } from './Minimap';
+import { RulerEngine } from './RulerEngine';
 import { FileText, Film, Type, Layers, UploadCloud } from 'lucide-react';
 import * as fabric from 'fabric';
 
@@ -149,6 +150,12 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         }}
       >
         
+        {/* Precision Screen Ruler Widget */}
+        <RulerEngine 
+          activeObject={activeEditingObject}
+          borderCol={borderCol}
+        />
+
         {isDraggingOver && (
           <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', zIndex: 200, pointerEvents: 'none' }}>
             <UploadCloud size={48} style={{ marginBottom: '12px', animation: 'bounce 1s infinite' }} />

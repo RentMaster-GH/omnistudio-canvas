@@ -22,6 +22,8 @@ import { PdfMergerModal } from './components/toolbar/PdfMergerModal';
 import { CropMaskModal } from './components/toolbar/CropMaskModal';
 import { RedactionModal } from './components/toolbar/RedactionModal';
 import { PdfSearchToolbar } from './components/toolbar/PdfSearchToolbar';
+import { TtsVoiceModal } from './components/toolbar/TtsVoiceModal';
+import { WatermarkModal } from './components/toolbar/WatermarkModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -139,6 +141,13 @@ function CanvasStudio() {
   // Redaction Modal State
   const [isRedactionModalOpen, setIsRedactionModalOpen] = useState(false);
 
+  // Watermark Modal State
+  const [isWatermarkModalOpen, setIsWatermarkModalOpen] = useState(false);
+
+  // TTS Voice Reader State
+  const [isTtsModalOpen, setIsTtsModalOpen] = useState(false);
+  const [ttsInitialText, setTtsInitialText] = useState('');
+
   // PDF Search Toolbar State
   const [isPdfSearchOpen, setIsPdfSearchOpen] = useState(false);
   const [searchMatchCount, setSearchMatchCount] = useState(0);
@@ -214,6 +223,40 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  const handleApplyAdvancedWatermark = (text: string, angle: number, opacity: number, color: string, pageRange: string) => {
+    if (!fabricCanvas) return;
+
+    const watermarkObj = new (fabric as any).Text(text.toUpperCase(), {
+      fontSize: 48,
+      fontFamily: 'Arial',
+      fontWeight: 'bold',
+      fill: color,
+      opacity: opacity,
+      angle: angle,
+      originX: 'center',
+      originY: 'center',
+      left: fabricCanvas.width / 2,
+      top: fabricCanvas.height / 2,
+      selectable: true,
+    });
+
+    fabricCanvas.add(watermarkObj);
+    fabricCanvas.setActiveObject(watermarkObj);
+    saveState();
+    setStatus(`💧 Advanced Watermark "${text}" applied to target range: ${pageRange}`);
+  };
+
+  const handleSelectBrandColor = (hexColor: string) => {
+    setTextColorVal(hexColor);
+    const activeObj = fabricCanvas?.getActiveObject();
+    if (activeObj) {
+      activeObj.set({ fill: hexColor });
+      fabricCanvas?.renderAll();
+      saveState();
+    }
+    setStatus(`🎨 Applied Brand Color: ${hexColor}`);
+  };
+
   // Canvas Paper Grid Pattern Handler
   const handleSetCanvasPattern = (patternType: 'white' | 'dot' | 'blueprint' | 'isometric' | 'dark') => {
     if (!fabricCanvas) return;
@@ -231,6 +274,18 @@ function CanvasStudio() {
     }
     saveState();
     setStatus(`📐 Canvas Paper Grid Pattern set to: ${patternType}`);
+  };
+
+  const handleOpenTtsModal = () => {
+    if (fabricCanvas) {
+      const activeObj = fabricCanvas.getActiveObject();
+      if (activeObj && typeof activeObj.text === 'string') {
+        setTtsInitialText(activeObj.text);
+      } else {
+        setTtsInitialText('OmniStudio Canvas is an all-in-one suite for editing PDF documents, video, audio, and Office files.');
+      }
+    }
+    setIsTtsModalOpen(true);
   };
 
   // Zoom Handlers
@@ -269,6 +324,29 @@ function CanvasStudio() {
     if (objs.length > 0) fabricCanvas.centerObject(objs[0]);
     fabricCanvas.renderAll();
     setStatus('🔍 Fit Canvas to Viewport Screen');
+  };
+
+  // Crop Handler
+  const handleApplyCrop = (cropXPercent: number, cropYPercent: number, cropWPercent: number, cropHPercent: number) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && activeObj.type === 'image') {
+      const origW = activeObj.width || 300;
+      const origH = activeObj.height || 300;
+
+      activeObj.set({
+        cropX: (cropXPercent / 100) * origW,
+        cropY: (cropYPercent / 100) * origH,
+        width: (cropWPercent / 100) * origW,
+        height: (cropHPercent / 100) * origH,
+      });
+
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✂️ Applied Crop Mask to Element');
+    } else {
+      alert('Please select an image or PDF surface element to crop!');
+    }
   };
 
   // PDF Keyword Search & Vector Highlight Engine
@@ -353,29 +431,6 @@ function CanvasStudio() {
       alert(`🎉 Redaction mask successfully applied to all ${totalPages} pages!`);
     } else {
       setStatus(`🛡️ Redaction mask applied to Page ${pageNum}`);
-    }
-  };
-
-  // Crop Handler
-  const handleApplyCrop = (cropXPercent: number, cropYPercent: number, cropWPercent: number, cropHPercent: number) => {
-    if (!fabricCanvas) return;
-    const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj && activeObj.type === 'image') {
-      const origW = activeObj.width || 300;
-      const origH = activeObj.height || 300;
-
-      activeObj.set({
-        cropX: (cropXPercent / 100) * origW,
-        cropY: (cropYPercent / 100) * origH,
-        width: (cropWPercent / 100) * origW,
-        height: (cropHPercent / 100) * origH,
-      });
-
-      fabricCanvas.renderAll();
-      saveState();
-      setStatus('✂️ Applied Crop Mask to Element');
-    } else {
-      alert('Please select an image or PDF surface element to crop!');
     }
   };
 

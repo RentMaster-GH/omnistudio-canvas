@@ -1,8 +1,9 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop, ShieldAlert } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop, ShieldAlert, Droplet } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
 import { AlignmentToolbar } from './AlignmentToolbar';
 import { GridPatternToolbar } from './GridPatternToolbar';
+import { BrandPaletteBar } from './BrandPaletteBar';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -19,7 +20,9 @@ interface SecondaryRibbonProps {
   onOpenPdfMergerModal?: () => void;
   onOpenCropModal?: () => void;
   onOpenRedactionModal?: () => void;
+  onOpenWatermarkModal?: () => void;
   onOpenEyeDropper?: () => void;
+  onSelectBrandColor?: (color: string) => void;
   onSetCanvasPattern?: (patternType: 'white' | 'dot' | 'blueprint' | 'isometric' | 'dark') => void;
   onAddRectangle?: () => void;
   onAddCircle?: () => void;
@@ -46,7 +49,6 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   undoStackLength,
   redoStackLength,
   addText,
-  applyWatermarkToAllPages,
   applyCanvasPresetRatio,
   onOpenSignatureModal,
   onRunOcr,
@@ -54,7 +56,9 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenPdfMergerModal,
   onOpenCropModal,
   onOpenRedactionModal,
+  onOpenWatermarkModal,
   onOpenEyeDropper,
+  onSelectBrandColor,
   onSetCanvasPattern,
   onAddRectangle,
   onAddCircle,
@@ -79,6 +83,15 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
         <Upload size={14} /> Open PDF
         <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
       </label>
+
+      {/* BRAND COLOR PALETTE SWATCHES */}
+      {onSelectBrandColor && (
+        <BrandPaletteBar 
+          onSelectColor={onSelectBrandColor}
+          borderCol={borderCol}
+          bgBar={bgBar}
+        />
+      )}
 
       {/* MERGE PDFS BUTTON */}
       {onOpenPdfMergerModal && (
@@ -184,9 +197,12 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
         </button>
       )}
 
-      <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
-        💧 Watermark Document
-      </button>
+      {/* WATERMARK BUTTON */}
+      {onOpenWatermarkModal && (
+        <button onClick={onOpenWatermarkModal} style={prominentBtnStyle('#ef4444')}>
+          <Droplet size={14} /> Watermark
+        </button>
+      )}
 
       <div style={{ display: 'flex', gap: '3px', borderLeft: `1px solid ${borderCol}`, borderRight: `1px solid ${borderCol}`, padding: '0 6px' }}>
         <button title="YouTube Widescreen (16:9)" onClick={() => applyCanvasPresetRatio('16:9')} style={inspectorToggleBtnStyle(false)}>16:9</button>

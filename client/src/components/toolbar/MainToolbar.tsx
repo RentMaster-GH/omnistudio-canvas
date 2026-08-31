@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Type, Video, FolderOpen, Download, FileDown, Sun, Moon, Sparkles, Film } from 'lucide-react';
+import { FileText, Type, Video, FolderOpen, Download, FileDown, Sun, Moon, Sparkles, Film, Volume2 } from 'lucide-react';
 
 interface MainToolbarProps {
   activePortal: 'pdf' | 'canvas' | 'video';
@@ -13,6 +13,7 @@ interface MainToolbarProps {
   handlePaystackUpgrade: () => void;
   onOpenAiSummaryModal?: () => void;
   onOpenMediaLibraryModal?: () => void;
+  onOpenTtsModal?: () => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 }
@@ -29,6 +30,7 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
   handlePaystackUpgrade,
   onOpenAiSummaryModal,
   onOpenMediaLibraryModal,
+  onOpenTtsModal,
   darkMode,
   setDarkMode,
 }) => {
@@ -43,6 +45,13 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
       <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video Portal</button>
 
       <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
+      {/* TTS READ ALOUD BUTTON */}
+      {onOpenTtsModal && (
+        <button onClick={onOpenTtsModal} style={globalHeaderBtnStyle}>
+          <Volume2 size={13} /> Read Aloud
+        </button>
+      )}
 
       {/* MEDIA LIBRARY BUTTON */}
       {onOpenMediaLibraryModal && (
