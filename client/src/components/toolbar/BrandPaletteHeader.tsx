@@ -36,8 +36,8 @@ export const BrandPaletteHeader: React.FC<Props> = ({ fabricCanvas, onColorSelec
   };
 
   return (
-    <div style={{ display: 'flex', itemsCenter: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155' }}>
-      <div style={{ display: 'flex', itemsCenter: 'center', gap: '6px', borderRight: '1px solid #475569', paddingRight: '10px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#1e293b', padding: '6px 12px', borderRadius: '8px', border: '1px solid #334155' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', borderRight: '1px solid #475569', paddingRight: '10px' }}>
         <Palette style={{ width: '16px', height: '16px', color: '#818cf8' }} />
         <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '0.5px' }}>
           BRAND SWATCHES

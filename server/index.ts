@@ -1,4 +1,4 @@
-// server/index.ts
+// server/src/index.ts
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -17,8 +17,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const uploadDir = path.join(__dirname, '../uploads');
-const outputDir = path.join(__dirname, '../outputs');
+const uploadDir = path.join(__dirname, '../../uploads');
+const outputDir = path.join(__dirname, '../../outputs');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
@@ -88,60 +88,99 @@ function resolveGeoLocalization(req: any, timeZone?: string) {
 }
 
 /**
- * Upgraded Paystack Initialization Handler (Supports Email-less Checkout & Geo-IP Routing)
+ * Live-Ready Paystack Initialization Handler
+ * Supports sk_live_ keys with Automatic Merchant Currency Fallback & Dummy Emails
  */
 const handlePaystackInit = async (req: any, res: any) => {
   try {
     const { userId, email, timeZone, currency: clientCurrency } = req.body;
-    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_placeholder';
+    const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+    const MERCHANT_PRIMARY_CURRENCY = (process.env.PAYSTACK_DEFAULT_CURRENCY || 'NGN').toUpperCase();
 
-    // FEATURE 1: DUMMY / ANONYMOUS EMAIL GENERATION (Bypasses email requirement)
+    if (!PAYSTACK_SECRET_KEY) {
+      return res.status(400).json({
+        error: 'PAYSTACK_SECRET_KEY is missing in server/.env file.'
+      });
+    }
+
+    // 1. DUMMY / ANONYMOUS EMAIL GENERATION
     const guestIdentifier = userId || `guest_${Math.random().toString(36).substring(2, 9)}`;
     const finalEmail = email && typeof email === 'string' && email.includes('@')
       ? email
       : `anonymous_${guestIdentifier}@omnistudio.internal`;
 
-    // FEATURE 2: DYNAMIC GEO-IP & TIMEZONE LOCALIZATION
+    // 2. DYNAMIC GEO LOCALIZATION
     const geoConfig = resolveGeoLocalization(req, timeZone);
-    const selectedCurrency = clientCurrency && clientCurrency !== 'USD' ? clientCurrency : geoConfig.currency;
-    const amountInSubunits = selectedCurrency === 'GHS' ? 12000 : geoConfig.amountInSubunits;
+    let targetCurrency = clientCurrency || geoConfig.currency;
 
-    const paystackRes = await axios.post(
-      'https://api.paystack.co/transaction/initialize',
-      {
-        email: finalEmail,
-        amount: amountInSubunits,
-        currency: selectedCurrency,
-        channels: geoConfig.channels,
-        callback_url: `${req.headers.origin || 'https://omnistudio-canvas.vercel.app'}/?payment=success`,
-        metadata: {
-          userId: guestIdentifier,
-          plan: 'pro_9_monthly',
-          isAnonymousCheckout: !email,
-          clientTimeZone: timeZone || 'unknown',
-        },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-          'Content-Type': 'application/json',
-        },
+    const getSubunits = (curr: string) => {
+      switch (curr) {
+        case 'NGN': return 500000; // 5,000 NGN
+        case 'GHS': return 12000;  // 120 GHS
+        case 'KES': return 120000; // 1,200 KES
+        case 'ZAR': return 18000;  // 180 ZAR
+        case 'USD': default: return 900; // $9 USD
       }
-    );
+    };
+
+    const callPaystackApi = async (curr: string) => {
+      return await axios.post(
+        'https://api.paystack.co/transaction/initialize',
+        {
+          email: finalEmail,
+          amount: getSubunits(curr),
+          currency: curr,
+          channels: geoConfig.channels,
+          callback_url: `${req.headers.origin || 'https://omnistudio-canvas.vercel.app'}/?payment=success`,
+          metadata: {
+            userId: guestIdentifier,
+            plan: 'pro_9_monthly',
+            isAnonymousCheckout: !email,
+            clientTimeZone: timeZone || 'unknown',
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${PAYSTACK_SECRET_KEY.trim()}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    };
+
+    let paystackRes;
+    try {
+      paystackRes = await callPaystackApi(targetCurrency);
+    } catch (firstErr: any) {
+      const errMsg = firstErr.response?.data?.message || '';
+      
+      if (errMsg.toLowerCase().includes('currency') || errMsg.toLowerCase().includes('merchant')) {
+        console.warn(`[Paystack Live Mode] Currency ${targetCurrency} not supported. Retrying with merchant primary currency ${MERCHANT_PRIMARY_CURRENCY}...`);
+        targetCurrency = MERCHANT_PRIMARY_CURRENCY;
+        paystackRes = await callPaystackApi(targetCurrency);
+      } else {
+        throw firstErr;
+      }
+    }
 
     return res.json({
       success: true,
       authorizationUrl: paystackRes.data.data.authorization_url,
       accessCode: paystackRes.data.data.access_code,
       reference: paystackRes.data.data.reference,
-      currency: selectedCurrency,
+      currency: targetCurrency,
       dummyEmailUsed: finalEmail,
     });
   } catch (err: any) {
-    console.error('[Paystack Init Error]:', err.response?.data || err.message);
+    console.error('[Paystack Live Init Error]:', err.response?.data || err.message);
+
+    const paystackErrorMsg = typeof err.response?.data?.message === 'string'
+      ? err.response.data.message
+      : err.message || 'Paystack Live Payment Initialization Failed.';
+
     return res.status(500).json({
-      error: 'Failed to initialize Paystack payment',
-      details: err.response?.data?.message || err.message,
+      error: paystackErrorMsg,
+      details: typeof err.response?.data === 'object' ? JSON.stringify(err.response.data) : String(err.response?.data || err.message)
     });
   }
 };

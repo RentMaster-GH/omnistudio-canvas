@@ -725,21 +725,27 @@ function CanvasStudio() {
 
       const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
         userId: guestUserId,
-        // Notice: NO email field passed -> Triggers Backend Dummy Email Generation!
         timeZone: timeZone,
         callbackUrl: window.location.href,
       });
 
       if (res.data?.success && res.data?.authorizationUrl) {
         setStatus(`💳 Redirecting to localized checkout (${res.data.currency || 'local'})...`);
-        // Instant redirect to Paystack authorization URL
         window.location.href = res.data.authorizationUrl;
       } else {
-        alert('Could not start Paystack checkout. Please verify server configuration.');
+        alert('Could not start Paystack checkout. Please check server configuration.');
       }
     } catch (err: any) {
-      console.error('Paystack Checkout Error:', err);
-      alert(`Paystack Checkout Error: ${err.response?.data?.error || err.response?.data?.details || err.message}`);
+      console.error('Paystack Checkout Detailed Error:', err.response?.data || err);
+
+      // Safe String Extraction (Prevents [object Object])
+      const errorMsg = typeof err.response?.data?.error === 'string'
+        ? err.response.data.error
+        : typeof err.response?.data?.details === 'string'
+        ? err.response.data.details
+        : err.response?.data?.message || err.message || 'Payment initialization failed.';
+
+      alert(`Paystack Checkout Error: ${errorMsg}`);
     }
   };
 
@@ -1101,6 +1107,8 @@ function CanvasStudio() {
         isOpen={isRedactionModalOpen}
         onClose={() => setIsRedactionModalOpen(false)}
         onApplyRedaction={() => {}}
+        totalPages={totalPages || 1}
+        currentPage={pageNum || 1}
         borderCol={borderCol}
         bgBar={bgBar}
       />
