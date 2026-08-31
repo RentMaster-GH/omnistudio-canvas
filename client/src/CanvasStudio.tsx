@@ -189,6 +189,49 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  // PDF Page Organizer Handlers
+  const handleMovePageUp = (index: number) => {
+    if (index <= 0 || thumbnails.length <= 1) return;
+    const newThumbs = [...thumbnails];
+    const temp = newThumbs[index];
+    newThumbs[index] = newThumbs[index - 1];
+    newThumbs[index - 1] = temp;
+    setThumbnails(newThumbs);
+    setPageNum(index);
+    setStatus(`📄 Moved Page ${index + 1} Up`);
+  };
+
+  const handleMovePageDown = (index: number) => {
+    if (index >= thumbnails.length - 1 || thumbnails.length <= 1) return;
+    const newThumbs = [...thumbnails];
+    const temp = newThumbs[index];
+    newThumbs[index] = newThumbs[index + 1];
+    newThumbs[index + 1] = temp;
+    setThumbnails(newThumbs);
+    setPageNum(index + 2);
+    setStatus(`📄 Moved Page ${index + 1} Down`);
+  };
+
+  const handleDuplicatePage = (index: number) => {
+    const newThumbs = [...thumbnails];
+    newThumbs.splice(index + 1, 0, newThumbs[index]);
+    setThumbnails(newThumbs);
+    setTotalPages(newThumbs.length);
+    setStatus(`📄 Duplicated Page ${index + 1}`);
+  };
+
+  const handleDeletePage = (index: number) => {
+    if (thumbnails.length <= 1) {
+      alert('Cannot delete the last remaining page!');
+      return;
+    }
+    const newThumbs = thumbnails.filter((_, i) => i !== index);
+    setThumbnails(newThumbs);
+    setTotalPages(newThumbs.length);
+    if (pageNum > newThumbs.length) setPageNum(newThumbs.length);
+    setStatus(`🗑️ Deleted Page ${index + 1}`);
+  };
+
   // Vector Shape Handlers
   const handleAddRectangle = () => {
     if (!fabricCanvas) return;
