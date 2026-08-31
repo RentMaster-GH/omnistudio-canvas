@@ -1355,6 +1355,7 @@ function CanvasStudio() {
         onRunOcr={handleRunOcr}
         onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
         onOpenPdfMergerModal={() => setIsPdfMergerOpen(true)}
+        onOpenCropModal={() => setIsCropModalOpen(true)}
         onOpenEyeDropper={handleOpenEyeDropper}
         onAddRectangle={handleAddRectangle}
         onAddCircle={handleAddCircle}
@@ -1480,7 +1481,16 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 10. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      {/* 10. CROP MASK MODAL */}
+      <CropMaskModal 
+        isOpen={isCropModalOpen}
+        onClose={() => setIsCropModalOpen(false)}
+        onApplyCrop={handleApplyCrop}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 11. BOTTOM MULTI-TRACK TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
         onTogglePlay={togglePlayPause}

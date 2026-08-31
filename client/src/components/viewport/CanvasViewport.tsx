@@ -3,6 +3,7 @@ import { PDFNode } from '../nodes/PDFNode';
 import { VideoNode } from '../nodes/VideoNode';
 import { DocumentNode } from '../nodes/DocumentNode';
 import { TextFormattingToolbar } from '../toolbar/TextFormattingToolbar';
+import { Minimap } from './Minimap';
 import { FileText, Film, Type, Layers, UploadCloud } from 'lucide-react';
 import * as fabric from 'fabric';
 
@@ -13,6 +14,11 @@ interface CanvasViewportProps {
   borderCol: string;
   fabricCanvas?: any;
   saveState?: () => void;
+  zoomLevel?: number;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetZoom?: () => void;
+  onFitToScreen?: () => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -22,6 +28,11 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   borderCol,
   fabricCanvas,
   saveState = () => {},
+  zoomLevel = 1.0,
+  onZoomIn = () => {},
+  onZoomOut = () => {},
+  onResetZoom = () => {},
+  onFitToScreen = () => {},
 }) => {
   const [activeMediaOverlay, setActiveMediaOverlay] = useState<'none' | 'pdf' | 'video' | 'doc'>('none');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -156,6 +167,16 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         )}
 
         <canvas ref={canvasRef} />
+
+        {/* Spatial Minimap & Zoom Radar Widget */}
+        <Minimap 
+          zoomLevel={zoomLevel}
+          onZoomIn={onZoomIn}
+          onZoomOut={onZoomOut}
+          onResetZoom={onResetZoom}
+          onFitToScreen={onFitToScreen}
+          borderCol={borderCol}
+        />
 
         {activeMediaOverlay !== 'none' && (
           <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 50 }}>
