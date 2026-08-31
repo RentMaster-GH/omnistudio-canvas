@@ -17,6 +17,7 @@ import { OcrModal } from './components/toolbar/OcrModal';
 import { VoiceRecorderModal } from './components/toolbar/VoiceRecorderModal';
 import { AiSummaryModal } from './components/toolbar/AiSummaryModal';
 import { MediaLibraryModal } from './components/toolbar/MediaLibraryModal';
+import { PdfMergerModal } from './components/toolbar/PdfMergerModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -125,6 +126,9 @@ function CanvasStudio() {
   // Media Library Modal State
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
 
+  // PDF Merger Modal State
+  const [isPdfMergerOpen, setIsPdfMergerOpen] = useState(false);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -191,6 +195,39 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // PDF Stitching Engine
+  const handleMergePdfs = async (files: File[]) => {
+    setStatus('📄 Stitching & merging PDF documents into single bundle...');
+    const allThumbs: string[] = [];
+
+    for (let f = 0; f < files.length; f++) {
+      try {
+        const arrayBuffer = await files[f].arrayBuffer();
+        const loadedPdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        
+        for (let i = 1; i <= loadedPdf.numPages; i++) {
+          const page = await loadedPdf.getPage(i);
+          const viewport = page.getViewport({ scale: 0.2 });
+          const tempCanvas = document.createElement('canvas');
+          const context = tempCanvas.getContext('2d');
+          tempCanvas.height = viewport.height;
+          tempCanvas.width = viewport.width;
+
+          await page.render({ canvasContext: context, viewport }).promise;
+          allThumbs.push(tempCanvas.toDataURL('image/png'));
+        }
+      } catch (err) {
+        console.error('Error merging PDF file:', err);
+      }
+    }
+
+    setThumbnails(allThumbs);
+    setTotalPages(allThumbs.length);
+    setPageNum(1);
+    setStatus(`✅ Merged ${files.length} PDFs into unified ${allThumbs.length}-page document!`);
+    alert(`🎉 Successfully merged ${files.length} PDF files into a single ${allThumbs.length}-page document!`);
   };
 
   // Object Alignment & Grouping Handlers

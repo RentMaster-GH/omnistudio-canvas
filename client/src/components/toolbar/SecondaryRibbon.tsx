@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
 import { AlignmentToolbar } from './AlignmentToolbar';
 
@@ -15,6 +15,7 @@ interface SecondaryRibbonProps {
   onOpenSignatureModal?: () => void;
   onRunOcr?: () => void;
   onOpenVoiceRecorder?: () => void;
+  onOpenPdfMergerModal?: () => void;
   onAddRectangle?: () => void;
   onAddCircle?: () => void;
   onAddTriangle?: () => void;
@@ -45,6 +46,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenSignatureModal,
   onRunOcr,
   onOpenVoiceRecorder,
+  onOpenPdfMergerModal,
   onAddRectangle,
   onAddCircle,
   onAddTriangle,
@@ -68,6 +70,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
         <Upload size={14} /> Open PDF
         <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
       </label>
+
+      {/* MERGE PDFS BUTTON */}
+      {onOpenPdfMergerModal && (
+        <button onClick={onOpenPdfMergerModal} style={prominentBtnStyle('#0284c7')}>
+          <FilePlus size={14} /> Merge PDFs
+        </button>
+      )}
 
       <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
