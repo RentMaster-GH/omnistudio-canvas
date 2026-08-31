@@ -1370,6 +1370,7 @@ function CanvasStudio() {
             exitTextEditing={exitTextEditing}
             borderCol={borderCol}
             fabricCanvas={fabricCanvas}
+            saveState={saveState}
           />
 
           {/* Right Layers & Property Inspector Panels */}

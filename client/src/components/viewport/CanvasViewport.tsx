@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PDFNode } from '../nodes/PDFNode';
 import { VideoNode } from '../nodes/VideoNode';
 import { DocumentNode } from '../nodes/DocumentNode';
+import { TextFormattingToolbar } from '../toolbar/TextFormattingToolbar';
 import { FileText, Film, Type, Layers, UploadCloud } from 'lucide-react';
 import * as fabric from 'fabric';
 
@@ -11,6 +12,7 @@ interface CanvasViewportProps {
   exitTextEditing: () => void;
   borderCol: string;
   fabricCanvas?: any;
+  saveState?: () => void;
 }
 
 export const CanvasViewport: React.FC<CanvasViewportProps> = ({
@@ -19,6 +21,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   exitTextEditing,
   borderCol,
   fabricCanvas,
+  saveState = () => {},
 }) => {
   const [activeMediaOverlay, setActiveMediaOverlay] = useState<'none' | 'pdf' | 'video' | 'doc'>('none');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -26,7 +29,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
   const [droppedDocTitle, setDroppedDocTitle] = useState<string>('');
   const [droppedDocContent, setDroppedDocContent] = useState<string>('');
 
-  // Drag-and-Drop Event Handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -51,27 +53,18 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     const fileName = file.name;
     const fileType = file.type;
 
-    console.log(`📥 [Universal Uploader] Dropped file: ${fileName} (${fileType})`);
-
-    // 1. PDF File Drop
     if (fileType.includes('pdf') || fileName.endsWith('.pdf')) {
       setActiveMediaOverlay('pdf');
-    } 
-    // 2. Video or Audio File Drop
-    else if (fileType.includes('video') || fileType.includes('audio') || fileName.endsWith('.mp4') || fileName.endsWith('.mp3')) {
+    } else if (fileType.includes('video') || fileType.includes('audio') || fileName.endsWith('.mp4') || fileName.endsWith('.mp3')) {
       const videoBlobUrl = URL.createObjectURL(file);
       setDroppedVideoUrl(videoBlobUrl);
       setActiveMediaOverlay('video');
-    } 
-    // 3. Word / Office Document Drop (.docx, .txt)
-    else if (fileType.includes('text') || fileType.includes('document') || fileName.endsWith('.docx') || fileName.endsWith('.txt')) {
+    } else if (fileType.includes('text') || fileType.includes('document') || fileName.endsWith('.docx') || fileName.endsWith('.txt')) {
       const text = await file.text();
       setDroppedDocTitle(fileName);
       setDroppedDocContent(text.substring(0, 500) || 'Word Document Content');
       setActiveMediaOverlay('doc');
-    } 
-    // 4. Image Drop (.png, .jpg, .svg) -> Drop directly on Fabric canvas surface
-    else if (fileType.includes('image')) {
+    } else if (fileType.includes('image')) {
       const imageUrl = URL.createObjectURL(file);
       if (fabricCanvas) {
         const ImageClass = (fabric as any).FabricImage || (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
@@ -87,9 +80,21 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
     }
   };
 
+  const isTextSelected = activeEditingObject && (activeEditingObject.type === 'i-text' || activeEditingObject.type === 'textbox' || activeEditingObject.type === 'text');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', position: 'relative' }}>
       
+      {/* Floating Text Formatting Toolbar */}
+      {isTextSelected && (
+        <TextFormattingToolbar 
+          activeObject={activeEditingObject}
+          fabricCanvas={fabricCanvas}
+          saveState={saveState}
+          borderCol={borderCol}
+        />
+      )}
+
       {/* Node Spawner Ribbon */}
       <div style={{ display: 'flex', gap: '8px', padding: '6px 12px', backgroundColor: '#1e293b', border: `1px solid ${borderCol}`, borderRadius: '6px', zIndex: 10 }}>
         <span style={{ fontSize: '11px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginRight: '4px' }}>
@@ -118,7 +123,7 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         </button>
       </div>
 
-      {/* Main Spatial Canvas Container with Drag-and-Drop Zone */}
+      {/* Main Canvas Viewport Container */}
       <div 
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -133,7 +138,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
         }}
       >
         
-        {/* Drag-and-Drop Visual Overlay */}
         {isDraggingOver && (
           <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', zIndex: 200, pointerEvents: 'none' }}>
             <UploadCloud size={48} style={{ marginBottom: '12px', animation: 'bounce 1s infinite' }} />
@@ -142,7 +146,6 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           </div>
         )}
 
-        {/* Close Text Focus Button */}
         {activeEditingObject && (
           <button 
             onClick={exitTextEditing} 
@@ -152,10 +155,8 @@ export const CanvasViewport: React.FC<CanvasViewportProps> = ({
           </button>
         )}
 
-        {/* Fabric.js Vector Canvas Surface */}
         <canvas ref={canvasRef} />
 
-        {/* Spatial Floating Node Overlay */}
         {activeMediaOverlay !== 'none' && (
           <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 50 }}>
             {activeMediaOverlay === 'pdf' && (
