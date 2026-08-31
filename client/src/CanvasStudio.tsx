@@ -11,6 +11,7 @@ import { LayersStack } from './components/sidebar/LayersStack';
 import { CanvasViewport } from './components/viewport/CanvasViewport';
 import { useCanvasSocket } from './components/useCanvasSocket';
 import { SignatureModal } from './components/toolbar/SignatureModal';
+import { TimelineBar } from './components/timeline/TimelineBar';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -110,6 +111,11 @@ function CanvasStudio() {
   // Digital Signature Modal State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
 
+  // Timeline & Playback State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [timelineSec, setTimelineSec] = useState(0);
+  const [videoDuration] = useState(30);
+
   // Real-Time Multiplayer Socket Hook
   const { broadcastCanvasChange } = useCanvasSocket(fabricCanvas);
 
@@ -142,7 +148,6 @@ function CanvasStudio() {
   const [totalPages, setTotalPages] = useState(0);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
 
-  const [isPlaying] = useState(false);
   const [, setTranscriptionText] = useState('Welcome to OmniStudio Canvas. Your all-in-one editor for video, audio, and text.');
   
   const [transcriptSegments, setTranscriptSegments] = useState<any[]>([
@@ -158,6 +163,15 @@ function CanvasStudio() {
 
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+
+  const togglePlayPause = () => {
+    setIsPlaying(!isPlaying);
+    setStatus(isPlaying ? '⏸️ Paused Playback' : '▶️ Playing Timeline');
+  };
+
+  const handleTimelineScrub = (newTime: number) => {
+    setTimelineSec(newTime);
+  };
 
   // Save Signature Image onto Canvas Surface
   const handleSaveSignature = async (dataUrl: string) => {
@@ -889,6 +903,17 @@ function CanvasStudio() {
         onClose={() => setIsSignatureModalOpen(false)}
         onSaveSignature={handleSaveSignature}
         onAddStamp={handleAddStamp}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 5. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      <TimelineBar 
+        isPlaying={isPlaying}
+        onTogglePlay={togglePlayPause}
+        currentTime={timelineSec}
+        duration={videoDuration}
+        onSeek={handleTimelineScrub}
         borderCol={borderCol}
         bgBar={bgBar}
       />
