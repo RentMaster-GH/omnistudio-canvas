@@ -1,5 +1,6 @@
 import React from 'react';
 import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic } from 'lucide-react';
+import { VectorShapesToolbar } from './VectorShapesToolbar';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -13,6 +14,12 @@ interface SecondaryRibbonProps {
   onOpenSignatureModal?: () => void;
   onRunOcr?: () => void;
   onOpenVoiceRecorder?: () => void;
+  onAddRectangle?: () => void;
+  onAddCircle?: () => void;
+  onAddTriangle?: () => void;
+  onAddArrow?: () => void;
+  onActivatePencil?: () => void;
+  onActivateHighlighter?: () => void;
   bgBar: string;
   borderCol: string;
 }
@@ -29,6 +36,12 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenSignatureModal,
   onRunOcr,
   onOpenVoiceRecorder,
+  onAddRectangle,
+  onAddCircle,
+  onAddTriangle,
+  onAddArrow,
+  onActivatePencil,
+  onActivateHighlighter,
   bgBar,
   borderCol,
 }) => {
@@ -54,6 +67,20 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
         <Type size={14} /> Add Text
       </button>
+
+      {/* VECTOR SHAPES TOOLBAR */}
+      {onAddRectangle && onAddCircle && (
+        <VectorShapesToolbar 
+          onAddRectangle={onAddRectangle!}
+          onAddCircle={onAddCircle!}
+          onAddTriangle={onAddTriangle!}
+          onAddArrow={onAddArrow!}
+          onActivatePencil={onActivatePencil!}
+          onActivateHighlighter={onActivateHighlighter!}
+          borderCol={borderCol}
+          bgBar={bgBar}
+        />
+      )}
 
       {/* VOICE RECORDER BUTTON */}
       {onOpenVoiceRecorder && (

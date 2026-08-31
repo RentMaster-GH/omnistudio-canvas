@@ -189,6 +189,94 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  // Vector Shape Handlers
+  const handleAddRectangle = () => {
+    if (!fabricCanvas) return;
+    const rect = new (fabric as any).Rect({
+      left: 180,
+      top: 180,
+      width: 140,
+      height: 90,
+      fill: 'rgba(2, 132, 199, 0.2)',
+      stroke: '#0284c7',
+      strokeWidth: 2,
+      rx: 6,
+      ry: 6,
+    });
+    fabricCanvas.add(rect);
+    fabricCanvas.setActiveObject(rect);
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('🔷 Vector Rectangle added');
+  };
+
+  const handleAddCircle = () => {
+    if (!fabricCanvas) return;
+    const circle = new (fabric as any).Circle({
+      left: 220,
+      top: 200,
+      radius: 50,
+      fill: 'rgba(139, 92, 246, 0.2)',
+      stroke: '#8b5cf6',
+      strokeWidth: 2,
+    });
+    fabricCanvas.add(circle);
+    fabricCanvas.setActiveObject(circle);
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('🟣 Vector Circle added');
+  };
+
+  const handleAddTriangle = () => {
+    if (!fabricCanvas) return;
+    const triangle = new (fabric as any).Triangle({
+      left: 250,
+      top: 210,
+      width: 100,
+      height: 90,
+      fill: 'rgba(245, 158, 11, 0.2)',
+      stroke: '#f59e0b',
+      strokeWidth: 2,
+    });
+    fabricCanvas.add(triangle);
+    fabricCanvas.setActiveObject(triangle);
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('🔺 Vector Triangle added');
+  };
+
+  const handleAddArrow = () => {
+    if (!fabricCanvas) return;
+    const line = new (fabric as any).Line([100, 200, 250, 200], {
+      stroke: '#10b981',
+      strokeWidth: 4,
+    });
+    fabricCanvas.add(line);
+    fabricCanvas.setActiveObject(line);
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus('➡️ Vector Line added');
+  };
+
+  const handleActivatePencil = () => {
+    if (!fabricCanvas) return;
+    activateToolMode('draw');
+    setStatus('✏️ Freehand Pen Brush activated');
+  };
+
+  const handleActivateHighlighter = () => {
+    if (!fabricCanvas) return;
+    fabricCanvas.isDrawingMode = true;
+    const PencilBrushClass = getFabricPencilBrush();
+    if (PencilBrushClass) {
+      const brush = new PencilBrushClass(fabricCanvas);
+      brush.width = 16;
+      brush.color = 'rgba(234, 179, 8, 0.4)';
+      fabricCanvas.freeDrawingBrush = brush;
+    }
+    setStatus('🖍️ Highlighter Pen activated');
+  };
+
   const exportMp4Video = async () => {
     if (!fabricCanvas) return;
     setStatus('🎬 Triggering server-side OmniEngine MP4 video rendering...');
@@ -996,6 +1084,12 @@ function CanvasStudio() {
         onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
         onRunOcr={handleRunOcr}
         onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
+        onAddRectangle={handleAddRectangle}
+        onAddCircle={handleAddCircle}
+        onAddTriangle={handleAddTriangle}
+        onAddArrow={handleAddArrow}
+        onActivatePencil={handleActivatePencil}
+        onActivateHighlighter={handleActivateHighlighter}
         bgBar={bgBar}
         borderCol={borderCol}
       />
