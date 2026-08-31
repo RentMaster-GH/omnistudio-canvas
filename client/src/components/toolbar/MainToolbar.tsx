@@ -12,6 +12,7 @@ interface MainToolbarProps {
   generateShareableProjectUrl: () => void;
   handlePaystackUpgrade: () => void;
   onOpenAiSummaryModal?: () => void;
+  onOpenMediaLibraryModal?: () => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 }
@@ -27,6 +28,7 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
   generateShareableProjectUrl,
   handlePaystackUpgrade,
   onOpenAiSummaryModal,
+  onOpenMediaLibraryModal,
   darkMode,
   setDarkMode,
 }) => {
@@ -41,6 +43,13 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
       <button onClick={() => setActivePortal('video')} style={portalTabStyle(activePortal === 'video')}><Video size={13} /> Video Portal</button>
 
       <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
+
+      {/* MEDIA LIBRARY BUTTON */}
+      {onOpenMediaLibraryModal && (
+        <button onClick={onOpenMediaLibraryModal} style={globalHeaderBtnStyle}>
+          <FolderOpen size={13} /> Asset Library
+        </button>
+      )}
 
       {/* AI SUMMARIZE BUTTON */}
       {onOpenAiSummaryModal && (

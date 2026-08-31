@@ -16,6 +16,7 @@ import { TimelineBar } from './components/timeline/TimelineBar';
 import { OcrModal } from './components/toolbar/OcrModal';
 import { VoiceRecorderModal } from './components/toolbar/VoiceRecorderModal';
 import { AiSummaryModal } from './components/toolbar/AiSummaryModal';
+import { MediaLibraryModal } from './components/toolbar/MediaLibraryModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -120,6 +121,9 @@ function CanvasStudio() {
 
   // AI Summary Modal State
   const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
+
+  // Media Library Modal State
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
 
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
@@ -230,6 +234,42 @@ function CanvasStudio() {
     setTotalPages(newThumbs.length);
     if (pageNum > newThumbs.length) setPageNum(newThumbs.length);
     setStatus(`🗑️ Deleted Page ${index + 1}`);
+  };
+
+  const handleInsertMediaAsset = async (type: 'image' | 'template', contentUrlOrText: string, title: string) => {
+    if (!fabricCanvas) return;
+
+    if (type === 'image') {
+      const ImageClass = (fabric as any).FabricImage || (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
+      if (ImageClass) {
+        const imgObj = await ImageClass.fromURL(contentUrlOrText);
+        imgObj.scaleToWidth(120);
+        imgObj.set({ left: 250, top: 180 });
+        fabricCanvas.add(imgObj);
+        fabricCanvas.setActiveObject(imgObj);
+        fabricCanvas.renderAll();
+        saveState();
+        setStatus(`📁 Inserted Asset: ${title}`);
+      }
+    } else if (type === 'template') {
+      const ITextClass = getFabricIText();
+      if (ITextClass) {
+        const textObj = new ITextClass(contentUrlOrText, {
+          left: 150,
+          top: 150,
+          fontSize: 16,
+          fontFamily: 'Arial',
+          fill: '#0f172a',
+          backgroundColor: '#f8fafc',
+          padding: 12,
+        });
+        fabricCanvas.add(textObj);
+        fabricCanvas.setActiveObject(textObj);
+        fabricCanvas.renderAll();
+        saveState();
+        setStatus(`📄 Inserted Template: ${title}`);
+      }
+    }
   };
 
   // Vector Shape Handlers
@@ -1144,6 +1184,10 @@ function CanvasStudio() {
           thumbnails={thumbnails}
           pageNum={pageNum}
           changePdfPage={changePdfPage}
+          onMovePageUp={handleMovePageUp}
+          onMovePageDown={handleMovePageDown}
+          onDuplicatePage={handleDuplicatePage}
+          onDeletePage={handleDeletePage}
           bgBar={bgBar}
           borderCol={borderCol}
         />
