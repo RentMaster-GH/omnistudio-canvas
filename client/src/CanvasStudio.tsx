@@ -193,6 +193,95 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  // Object Alignment & Grouping Handlers
+  const handleAlignLeft = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.set({ left: 20 });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Left');
+    }
+  };
+
+  const handleAlignCenter = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.centerH();
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Center');
+    }
+  };
+
+  const handleAlignRight = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.set({ left: fabricCanvas.width - activeObj.width * (activeObj.scaleX || 1) - 20 });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Right');
+    }
+  };
+
+  const handleAlignTop = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.set({ top: 20 });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Top');
+    }
+  };
+
+  const handleAlignMiddle = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.centerV();
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Middle');
+    }
+  };
+
+  const handleAlignBottom = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj) {
+      activeObj.set({ top: fabricCanvas.height - activeObj.height * (activeObj.scaleY || 1) - 20 });
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📐 Aligned Object Bottom');
+    }
+  };
+
+  const handleGroupObjects = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && activeObj.type === 'activeSelection') {
+      activeObj.toGroup();
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('🔗 Grouped Selected Objects');
+    }
+  };
+
+  const handleUngroupObjects = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && activeObj.type === 'group') {
+      activeObj.toActiveSelection();
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('🔓 Ungrouped Objects');
+    }
+  };
+
   // PDF Page Organizer Handlers
   const handleMovePageUp = (index: number) => {
     if (index <= 0 || thumbnails.length <= 1) return;
@@ -642,7 +731,7 @@ function CanvasStudio() {
     activeToolRef.current = activeTool;
   }, [activeTool]);
 
-  // UNIVERSAL FABRIC CANVAS INITIALIZATION
+  // UNIVERSAL FABRIC CANVAS INITIALIZATION WITH 60 FPS PERFORMANCE OPTIMIZATIONS
   useEffect(() => {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) {
@@ -655,6 +744,8 @@ function CanvasStudio() {
       height: 480,
       backgroundColor: '#ffffff',
       defaultCursor: 'grab',
+      renderOnAddRemove: true,
+      skipTargetFind: false,
     });
 
     canvas.on('mouse:down', (opt: any) => {
@@ -909,7 +1000,7 @@ function CanvasStudio() {
     if (!targetCanvas) return;
     try {
       const json = targetCanvas.toJSON(['isPendingRedaction', 'isRedacted', 'id', 'linkUrl']);
-      setUndoStack((prev) => [...prev, JSON.stringify(json)]);
+      setUndoStack((prev) => [...prev.slice(-30), JSON.stringify(json)]); // Cap stack at 30 snapshots for 60 FPS performance
       setRedoStack([]);
 
       // Broadcast change live to all socket peers
@@ -1150,6 +1241,7 @@ function CanvasStudio() {
         generateShareableProjectUrl={generateShareableProjectUrl}
         handlePaystackUpgrade={handlePaystackUpgrade}
         onOpenAiSummaryModal={() => setIsAiSummaryModalOpen(true)}
+        onOpenMediaLibraryModal={() => setIsMediaLibraryOpen(true)}
         darkMode={darkMode}
         setDarkMode={setDarkMode}
       />
@@ -1173,6 +1265,14 @@ function CanvasStudio() {
         onAddArrow={handleAddArrow}
         onActivatePencil={handleActivatePencil}
         onActivateHighlighter={handleActivateHighlighter}
+        onAlignLeft={handleAlignLeft}
+        onAlignCenter={handleAlignCenter}
+        onAlignRight={handleAlignRight}
+        onAlignTop={handleAlignTop}
+        onAlignMiddle={handleAlignMiddle}
+        onAlignBottom={handleAlignBottom}
+        onGroupObjects={handleGroupObjects}
+        onUngroupObjects={handleUngroupObjects}
         bgBar={bgBar}
         borderCol={borderCol}
       />
@@ -1252,7 +1352,16 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 8. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      {/* 8. CLOUD ASSET & TEMPLATE LIBRARY MODAL */}
+      <MediaLibraryModal 
+        isOpen={isMediaLibraryOpen}
+        onClose={() => setIsMediaLibraryOpen(false)}
+        onInsertAsset={handleInsertMediaAsset}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 9. BOTTOM MULTI-TRACK TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
         onTogglePlay={togglePlayPause}

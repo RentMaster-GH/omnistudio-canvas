@@ -1,6 +1,7 @@
 import React from 'react';
 import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
+import { AlignmentToolbar } from './AlignmentToolbar';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -20,6 +21,14 @@ interface SecondaryRibbonProps {
   onAddArrow?: () => void;
   onActivatePencil?: () => void;
   onActivateHighlighter?: () => void;
+  onAlignLeft?: () => void;
+  onAlignCenter?: () => void;
+  onAlignRight?: () => void;
+  onAlignTop?: () => void;
+  onAlignMiddle?: () => void;
+  onAlignBottom?: () => void;
+  onGroupObjects?: () => void;
+  onUngroupObjects?: () => void;
   bgBar: string;
   borderCol: string;
 }
@@ -42,6 +51,14 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onAddArrow,
   onActivatePencil,
   onActivateHighlighter,
+  onAlignLeft,
+  onAlignCenter,
+  onAlignRight,
+  onAlignTop,
+  onAlignMiddle,
+  onAlignBottom,
+  onGroupObjects,
+  onUngroupObjects,
   bgBar,
   borderCol,
 }) => {
@@ -67,6 +84,22 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
         <Type size={14} /> Add Text
       </button>
+
+      {/* ALIGNMENT & GROUPING TOOLBAR */}
+      {onAlignLeft && (
+        <AlignmentToolbar 
+          onAlignLeft={onAlignLeft}
+          onAlignCenter={onAlignCenter!}
+          onAlignRight={onAlignRight!}
+          onAlignTop={onAlignTop!}
+          onAlignMiddle={onAlignMiddle!}
+          onAlignBottom={onAlignBottom!}
+          onGroupObjects={onGroupObjects!}
+          onUngroupObjects={onUngroupObjects!}
+          borderCol={borderCol}
+          bgBar={bgBar}
+        />
+      )}
 
       {/* VECTOR SHAPES TOOLBAR */}
       {onAddRectangle && onAddCircle && (
