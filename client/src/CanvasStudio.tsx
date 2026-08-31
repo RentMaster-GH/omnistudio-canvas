@@ -19,6 +19,7 @@ import { VoiceRecorderModal } from './components/toolbar/VoiceRecorderModal';
 import { AiSummaryModal } from './components/toolbar/AiSummaryModal';
 import { MediaLibraryModal } from './components/toolbar/MediaLibraryModal';
 import { PdfMergerModal } from './components/toolbar/PdfMergerModal';
+import { CropMaskModal } from './components/toolbar/CropMaskModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -130,6 +131,9 @@ function CanvasStudio() {
   // PDF Merger Modal State
   const [isPdfMergerOpen, setIsPdfMergerOpen] = useState(false);
 
+  // Crop Mask Modal State
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -196,6 +200,29 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // Crop Handler
+  const handleApplyCrop = (cropXPercent: number, cropYPercent: number, cropWPercent: number, cropHPercent: number) => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (activeObj && activeObj.type === 'image') {
+      const origW = activeObj.width || 300;
+      const origH = activeObj.height || 300;
+
+      activeObj.set({
+        cropX: (cropXPercent / 100) * origW,
+        cropY: (cropYPercent / 100) * origH,
+        width: (cropWPercent / 100) * origW,
+        height: (cropHPercent / 100) * origH,
+      });
+
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✂️ Applied Crop Mask to Element');
+    } else {
+      alert('Please select an image or PDF surface element to crop!');
+    }
   };
 
   // Screen Eyedropper Tool Handler
