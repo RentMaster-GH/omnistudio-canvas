@@ -9,6 +9,7 @@ import { MainToolbar } from './components/toolbar/MainToolbar';
 import { SecondaryRibbon } from './components/toolbar/SecondaryRibbon';
 import { PageNavigator } from './components/sidebar/PageNavigator';
 import { LayersStack } from './components/sidebar/LayersStack';
+import { PropertyInspector } from './components/sidebar/PropertyInspector';
 import { CanvasViewport } from './components/viewport/CanvasViewport';
 import { useCanvasSocket } from './components/useCanvasSocket';
 import { SignatureModal } from './components/toolbar/SignatureModal';
@@ -1339,13 +1340,25 @@ function CanvasStudio() {
             fabricCanvas={fabricCanvas}
           />
 
-          {/* Right Layers Panel */}
-          <LayersStack 
-            canvasLayers={canvasLayers}
-            fabricCanvas={fabricCanvas}
-            bgBar={bgBar}
-            borderCol={borderCol}
-          />
+          {/* Right Layers & Property Inspector Panels */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {activeEditingObject && (
+              <PropertyInspector 
+                activeObject={activeEditingObject}
+                fabricCanvas={fabricCanvas}
+                saveState={saveState}
+                borderCol={borderCol}
+                bgBar={bgBar}
+              />
+            )}
+
+            <LayersStack 
+              canvasLayers={canvasLayers}
+              fabricCanvas={fabricCanvas}
+              bgBar={bgBar}
+              borderCol={borderCol}
+            />
+          </div>
         </div>
       </div>
 
