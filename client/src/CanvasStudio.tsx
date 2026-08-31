@@ -198,6 +198,31 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  // Screen Eyedropper Tool Handler
+  const handleOpenEyeDropper = async () => {
+    if (!('EyeDropper' in window)) {
+      alert('Screen Eyedropper is supported in Chrome, Edge, and Opera browsers.');
+      return;
+    }
+
+    try {
+      const eyeDropper = new (window as any).EyeDropper();
+      const result = await eyeDropper.open();
+      if (result?.sRGBHex) {
+        setTextColorVal(result.sRGBHex);
+        const activeObj = fabricCanvas?.getActiveObject();
+        if (activeObj) {
+          activeObj.set({ fill: result.sRGBHex });
+          fabricCanvas?.renderAll();
+          saveState();
+        }
+        setStatus(`🧪 Eyedropper picked color: ${result.sRGBHex}`);
+      }
+    } catch (e) {
+      console.warn('EyeDropper cancelled:', e);
+    }
+  };
+
   // PDF Stitching Engine
   const handleMergePdfs = async (files: File[]) => {
     setStatus('📄 Stitching & merging PDF documents into single bundle...');
@@ -1121,6 +1146,8 @@ function CanvasStudio() {
     if (!pdf || !fabricCanvas) return;
 
     const page = await pdf.getPage(pageNumber);
+    // 2.0x High-DPI Pixel Multiplier for Crisp PDF Text Zoom
+    const highDpiScale = 2.0;
     const unscaledViewport = page.getViewport({ scale: 1.0 });
 
     const canvasWidth = 820;
@@ -1137,7 +1164,8 @@ function CanvasStudio() {
       );
     }
 
-    const viewport = page.getViewport({ scale: computedScale });
+    // Multiply viewport scale by 2.0x for razor-sharp vector text rendering
+    const viewport = page.getViewport({ scale: computedScale * highDpiScale });
     const tempCanvas = document.createElement('canvas');
     const context = tempCanvas.getContext('2d');
     tempCanvas.height = viewport.height;
@@ -1149,8 +1177,10 @@ function CanvasStudio() {
     const ImageClass = getFabricImage();
     const imgObj = await ImageClass.fromURL(imgData);
 
-    const left = (canvasWidth - imgObj.width) / 2;
-    const top = (canvasHeight - imgObj.height) / 2;
+    // Scale object back down to fit canvas size while preserving 2.0x raster density
+    imgObj.scale(1 / highDpiScale);
+    const left = (canvasWidth - imgObj.getScaledWidth()) / 2;
+    const top = (canvasHeight - imgObj.getScaledHeight()) / 2;
 
     imgObj.set({ left, top, selectable: false });
 
@@ -1297,6 +1327,8 @@ function CanvasStudio() {
         onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
         onRunOcr={handleRunOcr}
         onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
+        onOpenPdfMergerModal={() => setIsPdfMergerOpen(true)}
+        onOpenEyeDropper={handleOpenEyeDropper}
         onAddRectangle={handleAddRectangle}
         onAddCircle={handleAddCircle}
         onAddTriangle={handleAddTriangle}
@@ -1411,7 +1443,16 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 9. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      {/* 9. PDF MERGER MODAL */}
+      <PdfMergerModal 
+        isOpen={isPdfMergerOpen}
+        onClose={() => setIsPdfMergerOpen(false)}
+        onMergePdfs={handleMergePdfs}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 10. BOTTOM MULTI-TRACK TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
         onTogglePlay={togglePlayPause}

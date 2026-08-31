@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, Pipette } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
 import { AlignmentToolbar } from './AlignmentToolbar';
 
@@ -16,6 +16,7 @@ interface SecondaryRibbonProps {
   onRunOcr?: () => void;
   onOpenVoiceRecorder?: () => void;
   onOpenPdfMergerModal?: () => void;
+  onOpenEyeDropper?: () => void;
   onAddRectangle?: () => void;
   onAddCircle?: () => void;
   onAddTriangle?: () => void;
@@ -46,7 +47,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenSignatureModal,
   onRunOcr,
   onOpenVoiceRecorder,
-  onOpenPdfMergerModal,
+  onOpenEyeDropper,
   onAddRectangle,
   onAddCircle,
   onAddTriangle,
@@ -71,13 +72,6 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
         <input type="file" accept=".pdf" onChange={handlePdfDocumentUpload} style={{ display: 'none' }} />
       </label>
 
-      {/* MERGE PDFS BUTTON */}
-      {onOpenPdfMergerModal && (
-        <button onClick={onOpenPdfMergerModal} style={prominentBtnStyle('#0284c7')}>
-          <FilePlus size={14} /> Merge PDFs
-        </button>
-      )}
-
       <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
 
       <button title="Undo" onClick={handleUndo} disabled={undoStackLength <= 1} style={iconToolBtnStyle(false)}>
@@ -89,6 +83,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       </button>
 
       <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+      {/* EYEDROPPER COLOR PICKER TOOL */}
+      {onOpenEyeDropper && (
+        <button onClick={onOpenEyeDropper} style={prominentBtnStyle('#0284c7')} title="Pick Color Off Screen (Eyedropper)">
+          <Pipette size={14} /> Eyedropper
+        </button>
+      )}
 
       <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
         <Type size={14} /> Add Text
