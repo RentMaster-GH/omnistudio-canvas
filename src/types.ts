@@ -1,3 +1,8 @@
+// --- FILL TYPES ---
+export type SolidFill = { type: 'solid'; color: string };
+export type GradientFill = { type: 'gradient'; colors: string[] };
+export type PatternFill = { type: 'pattern'; url: string };
+
 // --- CANVAS GRAPH ROOT ---
 export interface CanvasGraph {
   version: "1.0.0";

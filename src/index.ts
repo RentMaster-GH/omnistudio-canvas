@@ -41,7 +41,7 @@ const rectangleNode: CanvasNode = {
   style: {
     opacity: 1,
     blendMode: 'normal',
-    fill: { color: '#FF5733' }
+    fill: { type: 'solid', color: '#FF5733' }
   },
   data: {
     svgPathData: 'M 0 0 L 400 0 L 400 300 L 0 300 Z', // Standard SVG Box path
