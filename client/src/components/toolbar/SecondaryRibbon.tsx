@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop, ShieldAlert } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
 import { AlignmentToolbar } from './AlignmentToolbar';
 
@@ -17,6 +17,7 @@ interface SecondaryRibbonProps {
   onOpenVoiceRecorder?: () => void;
   onOpenPdfMergerModal?: () => void;
   onOpenCropModal?: () => void;
+  onOpenRedactionModal?: () => void;
   onOpenEyeDropper?: () => void;
   onAddRectangle?: () => void;
   onAddCircle?: () => void;
@@ -50,6 +51,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenVoiceRecorder,
   onOpenPdfMergerModal,
   onOpenCropModal,
+  onOpenRedactionModal,
   onOpenEyeDropper,
   onAddRectangle,
   onAddCircle,
@@ -79,6 +81,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       {onOpenPdfMergerModal && (
         <button onClick={onOpenPdfMergerModal} style={prominentBtnStyle('#0284c7')}>
           <FilePlus size={14} /> Merge PDFs
+        </button>
+      )}
+
+      {/* BLACKOUT REDACTION BUTTON */}
+      {onOpenRedactionModal && (
+        <button onClick={onOpenRedactionModal} style={prominentBtnStyle('#ef4444')}>
+          <ShieldAlert size={14} /> Blackout / Redact
         </button>
       )}
 

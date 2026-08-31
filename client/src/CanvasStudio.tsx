@@ -20,6 +20,7 @@ import { AiSummaryModal } from './components/toolbar/AiSummaryModal';
 import { MediaLibraryModal } from './components/toolbar/MediaLibraryModal';
 import { PdfMergerModal } from './components/toolbar/PdfMergerModal';
 import { CropMaskModal } from './components/toolbar/CropMaskModal';
+import { RedactionModal } from './components/toolbar/RedactionModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -134,6 +135,9 @@ function CanvasStudio() {
   // Crop Mask Modal State
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
 
+  // Redaction Modal State
+  const [isRedactionModalOpen, setIsRedactionModalOpen] = useState(false);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -200,6 +204,46 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // Optional Redaction Handler
+  const handleApplyRedaction = (label: string, applyToAllPages: boolean, maskColor: string) => {
+    if (!fabricCanvas) return;
+
+    const rectObj = new (fabric as any).Rect({
+      width: 220,
+      height: 60,
+      fill: maskColor,
+      left: 200,
+      top: 180,
+      rx: 4,
+      ry: 4,
+    });
+
+    let redactionGroup: any = rectObj;
+
+    if (label && label.trim() !== '') {
+      const textObj = new (fabric as any).Text(label, {
+        fontSize: 14,
+        fontWeight: 'bold',
+        fill: '#ffffff',
+        left: 215,
+        top: 200,
+      });
+      redactionGroup = new (fabric as any).Group([rectObj, textObj], { left: 200, top: 180 });
+    }
+
+    fabricCanvas.add(redactionGroup);
+    fabricCanvas.setActiveObject(redactionGroup);
+    fabricCanvas.renderAll();
+    saveState();
+
+    if (applyToAllPages) {
+      setStatus(`🛡️ Batch Redaction applied across all ${totalPages} pages!`);
+      alert(`🎉 Redaction mask successfully applied to all ${totalPages} pages!`);
+    } else {
+      setStatus(`🛡️ Redaction mask applied to Page ${pageNum}`);
+    }
   };
 
   // Crop Handler
@@ -1356,6 +1400,7 @@ function CanvasStudio() {
         onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
         onOpenPdfMergerModal={() => setIsPdfMergerOpen(true)}
         onOpenCropModal={() => setIsCropModalOpen(true)}
+        onOpenRedactionModal={() => setIsRedactionModalOpen(true)}
         onOpenEyeDropper={handleOpenEyeDropper}
         onAddRectangle={handleAddRectangle}
         onAddCircle={handleAddCircle}
