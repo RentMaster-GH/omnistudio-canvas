@@ -720,7 +720,6 @@ function CanvasStudio() {
     try {
       setStatus('⚡ Detecting location & initializing seamless Paystack payment...');
 
-      // Automatically detect user's client timezone for Geo-IP fallback routing
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
@@ -738,14 +737,14 @@ function CanvasStudio() {
     } catch (err: any) {
       console.error('Paystack Checkout Detailed Error:', err.response?.data || err);
 
-      // Safe String Extraction (Prevents [object Object])
-      const errorMsg = typeof err.response?.data?.error === 'string'
-        ? err.response.data.error
-        : typeof err.response?.data?.details === 'string'
-        ? err.response.data.details
-        : err.response?.data?.message || err.message || 'Payment initialization failed.';
+      // Safe Extraction of Error Text (Unrolls Nested Objects)
+      let rawErr = err.response?.data?.error || err.response?.data?.details || err.response?.data?.message || err.message;
 
-      alert(`Paystack Checkout Error: ${errorMsg}`);
+      if (typeof rawErr === 'object') {
+        rawErr = rawErr.message || rawErr.error || JSON.stringify(rawErr);
+      }
+
+      alert(`Paystack Checkout Error: ${rawErr}`);
     }
   };
 
