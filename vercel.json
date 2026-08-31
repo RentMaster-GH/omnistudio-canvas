@@ -1,29 +1,13 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "server/src/index.ts",
-      "use": "@vercel/node"
+      "source": "/api/billing/initialize-paystack",
+      "destination": "/api/billing/initialize-paystack.js"
     },
     {
-      "src": "client/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "server/src/index.ts"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/client/index.html"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     }
   ]
 }
