@@ -715,21 +715,31 @@ function CanvasStudio() {
     saveState();
   };
 
+  // --- UPGRADED EMAIL-LESS & GEO-IP PAYSTACK CHECKOUT ---
   const handlePaystackUpgrade = async () => {
-    const userEmail = prompt('Enter your email to upgrade to OmniStudio Pro ($9/mo):', 'user@example.com');
-    if (!userEmail) return;
-
     try {
+      setStatus('⚡ Detecting location & initializing seamless Paystack payment...');
+
+      // Automatically detect user's client timezone for Geo-IP fallback routing
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
       const res = await axios.post(`${API_BASE}/billing/initialize-paystack`, {
         userId: guestUserId,
-        email: userEmail,
-        currency: 'USD',
+        // Notice: NO email field passed -> Triggers Backend Dummy Email Generation!
+        timeZone: timeZone,
+        callbackUrl: window.location.href,
       });
-      if (res.data?.authorizationUrl) {
+
+      if (res.data?.success && res.data?.authorizationUrl) {
+        setStatus(`💳 Redirecting to localized checkout (${res.data.currency || 'local'})...`);
+        // Instant redirect to Paystack authorization URL
         window.location.href = res.data.authorizationUrl;
+      } else {
+        alert('Could not start Paystack checkout. Please verify server configuration.');
       }
     } catch (err: any) {
-      alert(`Paystack Error: ${err.response?.data?.details || err.message}`);
+      console.error('Paystack Checkout Error:', err);
+      alert(`Paystack Checkout Error: ${err.response?.data?.error || err.response?.data?.details || err.message}`);
     }
   };
 

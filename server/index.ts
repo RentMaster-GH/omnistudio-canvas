@@ -37,30 +37,88 @@ app.use(['/api/image', '/image'], imageRoutes);
 app.use(['/api/video', '/video'], videoRoutes);
 
 /**
- * Paystack Initialization Handler (Dual Route Matcher)
+ * Helper: Resolve Geo-IP / Timezone to Local Currency and Paystack Channels
+ */
+function resolveGeoLocalization(req: any, timeZone?: string) {
+  const ipCountry = (req.headers['cf-ipcountry'] || req.headers['x-country-code'] || '').toString().toUpperCase();
+  const tz = (timeZone || '').toLowerCase();
+
+  // 1. GHANA (GHS) -> Mobile Money (MoMo) + Card
+  if (ipCountry === 'GH' || tz.includes('accra') || tz.includes('ghana')) {
+    return {
+      currency: 'GHS',
+      amountInSubunits: 12000, // 120 GHS = 12,000 Pesewas
+      channels: ['mobile_money', 'card'],
+    };
+  }
+
+  // 2. NIGERIA (NGN) -> USSD, Bank Transfer, MoMo, Card
+  if (ipCountry === 'NG' || tz.includes('lagos') || tz.includes('nigeria')) {
+    return {
+      currency: 'NGN',
+      amountInSubunits: 500000, // 5,000 NGN = 500,000 Kobo
+      channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
+    };
+  }
+
+  // 3. KENYA (KES) -> M-Pesa / Mobile Money
+  if (ipCountry === 'KE' || tz.includes('nairobi') || tz.includes('kenya')) {
+    return {
+      currency: 'KES',
+      amountInSubunits: 120000, // 1,200 KES = 120,000 Cents
+      channels: ['mobile_money', 'card'],
+    };
+  }
+
+  // 4. SOUTH AFRICA (ZAR) -> EFT & Card
+  if (ipCountry === 'ZA' || tz.includes('johannesburg') || tz.includes('south_africa')) {
+    return {
+      currency: 'ZAR',
+      amountInSubunits: 18000, // 180 ZAR = 18,000 Cents
+      channels: ['card', 'eft'],
+    };
+  }
+
+  // 5. DEFAULT GLOBAL (USD)
+  return {
+    currency: 'USD',
+    amountInSubunits: 900, // $9.00 USD = 900 Cents
+    channels: ['card'],
+  };
+}
+
+/**
+ * Upgraded Paystack Initialization Handler (Supports Email-less Checkout & Geo-IP Routing)
  */
 const handlePaystackInit = async (req: any, res: any) => {
   try {
-    const { userId, email, currency = 'USD' } = req.body;
+    const { userId, email, timeZone, currency: clientCurrency } = req.body;
     const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY || 'sk_test_placeholder';
 
-    if (!email) {
-      return res.status(400).json({ error: 'User email is required for Paystack checkout.' });
-    }
+    // FEATURE 1: DUMMY / ANONYMOUS EMAIL GENERATION (Bypasses email requirement)
+    const guestIdentifier = userId || `guest_${Math.random().toString(36).substring(2, 9)}`;
+    const finalEmail = email && typeof email === 'string' && email.includes('@')
+      ? email
+      : `anonymous_${guestIdentifier}@omnistudio.internal`;
 
-    // $9.00 USD = 900 subunits / 120 GHS = 12000 pesewas
-    const amountInSubunits = currency === 'GHS' ? 12000 : 900;
+    // FEATURE 2: DYNAMIC GEO-IP & TIMEZONE LOCALIZATION
+    const geoConfig = resolveGeoLocalization(req, timeZone);
+    const selectedCurrency = clientCurrency && clientCurrency !== 'USD' ? clientCurrency : geoConfig.currency;
+    const amountInSubunits = selectedCurrency === 'GHS' ? 12000 : geoConfig.amountInSubunits;
 
     const paystackRes = await axios.post(
       'https://api.paystack.co/transaction/initialize',
       {
-        email,
+        email: finalEmail,
         amount: amountInSubunits,
-        currency,
+        currency: selectedCurrency,
+        channels: geoConfig.channels,
         callback_url: `${req.headers.origin || 'https://omnistudio-canvas.vercel.app'}/?payment=success`,
         metadata: {
-          userId: userId || 'guest_user',
+          userId: guestIdentifier,
           plan: 'pro_9_monthly',
+          isAnonymousCheckout: !email,
+          clientTimeZone: timeZone || 'unknown',
         },
       },
       {
@@ -76,6 +134,8 @@ const handlePaystackInit = async (req: any, res: any) => {
       authorizationUrl: paystackRes.data.data.authorization_url,
       accessCode: paystackRes.data.data.access_code,
       reference: paystackRes.data.data.reference,
+      currency: selectedCurrency,
+      dummyEmailUsed: finalEmail,
     });
   } catch (err: any) {
     console.error('[Paystack Init Error]:', err.response?.data || err.message);
