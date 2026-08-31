@@ -735,8 +735,9 @@ function CanvasStudio() {
     // Put your Paystack Public Key here (from Paystack Dashboard -> Settings -> API Keys)
     const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_1ce038da68ee109f5e603f5b816613d9cf261be5';
 
-    // Auto-generate anonymous placeholder email
-    const dummyEmail = `anonymous_${guestUserId}@omnistudio.internal`;
+    // Clean user ID and use valid TLD (.app / .com) to pass Paystack validator
+    const cleanGuestId = guestUserId.replace(/[^a-zA-Z0-9]/g, '');
+    const dummyEmail = `guest_${cleanGuestId}@omnistudio.app`;
 
     const handler = (window as any).PaystackPop.setup({
       key: PAYSTACK_PUBLIC_KEY,
