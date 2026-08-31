@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic } from 'lucide-react';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -12,6 +12,7 @@ interface SecondaryRibbonProps {
   applyCanvasPresetRatio: (preset: string) => void;
   onOpenSignatureModal?: () => void;
   onRunOcr?: () => void;
+  onOpenVoiceRecorder?: () => void;
   bgBar: string;
   borderCol: string;
 }
@@ -27,6 +28,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   applyCanvasPresetRatio,
   onOpenSignatureModal,
   onRunOcr,
+  onOpenVoiceRecorder,
   bgBar,
   borderCol,
 }) => {
@@ -52,6 +54,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
         <Type size={14} /> Add Text
       </button>
+
+      {/* VOICE RECORDER BUTTON */}
+      {onOpenVoiceRecorder && (
+        <button onClick={onOpenVoiceRecorder} style={prominentBtnStyle('#ef4444')}>
+          <Mic size={14} /> Voice Note
+        </button>
+      )}
 
       {/* SIGN & STAMP BUTTON */}
       {onOpenSignatureModal && (

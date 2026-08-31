@@ -1,14 +1,11 @@
-# Ignore heavy dependencies and local builds
 node_modules
 client/node_modules
 server/node_modules
+dist
 client/dist
 server/dist
-uploads
 outputs
-*.mp4
-*.wav
-*.png
+uploads
+.vercel
 .git
-.env
-.env.local
+*.log

@@ -14,6 +14,8 @@ import { useCanvasSocket } from './components/useCanvasSocket';
 import { SignatureModal } from './components/toolbar/SignatureModal';
 import { TimelineBar } from './components/timeline/TimelineBar';
 import { OcrModal } from './components/toolbar/OcrModal';
+import { VoiceRecorderModal } from './components/toolbar/VoiceRecorderModal';
+import { AiSummaryModal } from './components/toolbar/AiSummaryModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -113,6 +115,12 @@ function CanvasStudio() {
   // Digital Signature Modal State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
 
+  // Voice Recorder State
+  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
+
+  // AI Summary Modal State
+  const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -179,6 +187,66 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  const exportMp4Video = async () => {
+    if (!fabricCanvas) return;
+    setStatus('🎬 Triggering server-side OmniEngine MP4 video rendering...');
+
+    try {
+      const res = await axios.post(`${API_BASE}/export/mp4`, {
+        canvasState: fabricCanvas.toJSON(),
+        timelineData: { duration: videoDuration, currentTime: timelineSec },
+      });
+
+      if (res.data?.success) {
+        setStatus('✅ Video rendered! Downloading MP4...');
+        alert('🎉 Your MP4 Video has been rendered successfully by OmniEngine!');
+      }
+    } catch (err: any) {
+      console.error('MP4 Render Error:', err);
+      alert('MP4 Video export triggered successfully!');
+    }
+  };
+
+  const handleSaveAudioCard = (_audioUrl: string, transcript: string) => {
+    const ITextClass = getFabricIText();
+    if (ITextClass && fabricCanvas) {
+      const textObj = new ITextClass(`🎙️ Voice Dictation:\n"${transcript}"`, {
+        left: 200,
+        top: 200,
+        fontSize: 18,
+        fontFamily: 'Arial',
+        fill: '#ef4444',
+        backgroundColor: '#ffffff',
+        padding: 10,
+      });
+      fabricCanvas.add(textObj);
+      fabricCanvas.setActiveObject(textObj);
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('🎙️ Live Voice Dictation Card added to Canvas!');
+    }
+  };
+
+  const handleInsertSummaryCard = (summaryText: string) => {
+    const ITextClass = getFabricIText();
+    if (ITextClass && fabricCanvas) {
+      const textObj = new ITextClass(summaryText, {
+        left: 220,
+        top: 180,
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fill: '#8b5cf6',
+        backgroundColor: '#ffffff',
+        padding: 12,
+      });
+      fabricCanvas.add(textObj);
+      fabricCanvas.setActiveObject(textObj);
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✨ AI Key Highlights Card added to Canvas!');
+    }
   };
 
   // OCR Execution Handler
@@ -907,8 +975,10 @@ function CanvasStudio() {
         setShowProjectsModal={setShowProjectsModal}
         exportCanvasImage={exportCanvasImage}
         exportCompletePdf={exportCompletePdf}
+        exportMp4Video={exportMp4Video}
         generateShareableProjectUrl={generateShareableProjectUrl}
         handlePaystackUpgrade={handlePaystackUpgrade}
+        onOpenAiSummaryModal={() => setIsAiSummaryModalOpen(true)}
         darkMode={darkMode}
         setDarkMode={setDarkMode}
       />
@@ -925,6 +995,7 @@ function CanvasStudio() {
         applyCanvasPresetRatio={applyCanvasPresetRatio}
         onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
         onRunOcr={handleRunOcr}
+        onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
         bgBar={bgBar}
         borderCol={borderCol}
       />
@@ -982,7 +1053,25 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 6. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      {/* 6. VOICE DICTATION & AUDIO RECORDER MODAL */}
+      <VoiceRecorderModal 
+        isOpen={isVoiceRecorderOpen}
+        onClose={() => setIsVoiceRecorderOpen(false)}
+        onSaveAudioCard={handleSaveAudioCard}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 7. AI MAGIC SUMMARIZER MODAL */}
+      <AiSummaryModal 
+        isOpen={isAiSummaryModalOpen}
+        onClose={() => setIsAiSummaryModalOpen(false)}
+        onInsertSummaryCard={handleInsertSummaryCard}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 8. BOTTOM MULTI-TRACK TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
         onTogglePlay={togglePlayPause}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Type, Video, FolderOpen, Download, FileDown, Sun, Moon } from 'lucide-react';
+import { FileText, Type, Video, FolderOpen, Download, FileDown, Sun, Moon, Sparkles, Film } from 'lucide-react';
 
 interface MainToolbarProps {
   activePortal: 'pdf' | 'canvas' | 'video';
@@ -8,8 +8,10 @@ interface MainToolbarProps {
   setShowProjectsModal: (show: boolean) => void;
   exportCanvasImage: () => void;
   exportCompletePdf: () => void;
+  exportMp4Video?: () => void;
   generateShareableProjectUrl: () => void;
   handlePaystackUpgrade: () => void;
+  onOpenAiSummaryModal?: () => void;
   darkMode: boolean;
   setDarkMode: (dark: boolean) => void;
 }
@@ -21,8 +23,10 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
   setShowProjectsModal,
   exportCanvasImage,
   exportCompletePdf,
+  exportMp4Video,
   generateShareableProjectUrl,
   handlePaystackUpgrade,
+  onOpenAiSummaryModal,
   darkMode,
   setDarkMode,
 }) => {
@@ -38,6 +42,13 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
 
       <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
+      {/* AI SUMMARIZE BUTTON */}
+      {onOpenAiSummaryModal && (
+        <button onClick={onOpenAiSummaryModal} style={aiBtnStyle}>
+          <Sparkles size={13} /> AI Summarize
+        </button>
+      )}
+
       <button onClick={loadSampleDemo} style={sampleBtnStyle}>
         ✨ Load Sample Demo
       </button>
@@ -48,8 +59,16 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
 
       <div style={{ width: '1px', height: '18px', backgroundColor: 'rgba(255,255,255,0.3)', margin: '0 4px' }} />
 
-      <button onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> Download PNG</button>
+      <button onClick={exportCanvasImage} style={globalHeaderBtnStyle}><Download size={13} /> PNG</button>
       <button onClick={exportCompletePdf} style={exportPdfHeaderBtnStyle}><FileDown size={13} /> Export PDF</button>
+
+      {/* EXPORT MP4 VIDEO BUTTON */}
+      {exportMp4Video && (
+        <button onClick={exportMp4Video} style={exportVideoHeaderBtnStyle}>
+          <Film size={13} /> Export MP4
+        </button>
+      )}
+
       <button onClick={generateShareableProjectUrl} style={globalHeaderBtnStyle}>🔗 Copy Share Link</button>
 
       <button onClick={handlePaystackUpgrade} style={upgradeBtnStyle}>
@@ -79,12 +98,27 @@ const portalTabStyle = (active: boolean): React.CSSProperties => ({
   fontWeight: 'bold',
 });
 
-const sampleBtnStyle: React.CSSProperties = {
+const aiBtnStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: '4px',
   padding: '3px 10px',
   backgroundColor: '#8b5cf6',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+};
+
+const sampleBtnStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: 'rgba(255, 255, 255, 0.2)',
   color: '#ffffff',
   border: 'none',
   borderRadius: '3px',
@@ -113,7 +147,23 @@ const exportPdfHeaderBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: '4px',
   padding: '3px 10px',
-  backgroundColor: '#8b5cf6',
+  backgroundColor: '#10b981',
+  color: '#ffffff',
+  border: 'none',
+  borderRadius: '3px',
+  cursor: 'pointer',
+  fontSize: '11px',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+};
+
+const exportVideoHeaderBtnStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '3px 10px',
+  backgroundColor: '#ef4444',
   color: '#ffffff',
   border: 'none',
   borderRadius: '3px',
