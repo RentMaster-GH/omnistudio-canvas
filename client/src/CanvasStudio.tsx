@@ -143,6 +143,9 @@ function CanvasStudio() {
   const [isPdfSearchOpen, setIsPdfSearchOpen] = useState(false);
   const [searchMatchCount, setSearchMatchCount] = useState(0);
 
+  // Zoom State
+  const [zoomLevel, setZoomLevel] = useState(1.0);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -209,6 +212,63 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // Canvas Paper Grid Pattern Handler
+  const handleSetCanvasPattern = (patternType: 'white' | 'dot' | 'blueprint' | 'isometric' | 'dark') => {
+    if (!fabricCanvas) return;
+
+    if (patternType === 'white') {
+      fabricCanvas.setBackgroundColor('#ffffff', () => fabricCanvas.renderAll());
+    } else if (patternType === 'blueprint') {
+      fabricCanvas.setBackgroundColor('#0f2b48', () => fabricCanvas.renderAll());
+    } else if (patternType === 'dark') {
+      fabricCanvas.setBackgroundColor('#0f172a', () => fabricCanvas.renderAll());
+    } else if (patternType === 'dot') {
+      fabricCanvas.setBackgroundColor('#1e293b', () => fabricCanvas.renderAll());
+    } else if (patternType === 'isometric') {
+      fabricCanvas.setBackgroundColor('#182232', () => fabricCanvas.renderAll());
+    }
+    saveState();
+    setStatus(`📐 Canvas Paper Grid Pattern set to: ${patternType}`);
+  };
+
+  // Zoom Handlers
+  const handleZoomIn = () => {
+    if (!fabricCanvas) return;
+    const newZoom = Math.min(3.0, zoomLevel + 0.15);
+    setZoomLevel(newZoom);
+    fabricCanvas.setZoom(newZoom);
+    fabricCanvas.renderAll();
+    setStatus(`🔍 Zoomed In (${Math.round(newZoom * 100)}%)`);
+  };
+
+  const handleZoomOut = () => {
+    if (!fabricCanvas) return;
+    const newZoom = Math.max(0.4, zoomLevel - 0.15);
+    setZoomLevel(newZoom);
+    fabricCanvas.setZoom(newZoom);
+    fabricCanvas.renderAll();
+    setStatus(`🔍 Zoomed Out (${Math.round(newZoom * 100)}%)`);
+  };
+
+  const handleResetZoom = () => {
+    if (!fabricCanvas) return;
+    setZoomLevel(1.0);
+    fabricCanvas.setZoom(1.0);
+    fabricCanvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+    fabricCanvas.renderAll();
+    setStatus('🔍 Zoom Reset to 100%');
+  };
+
+  const handleFitToScreen = () => {
+    if (!fabricCanvas) return;
+    setZoomLevel(0.85);
+    fabricCanvas.setZoom(0.85);
+    const objs = fabricCanvas.getObjects();
+    if (objs.length > 0) fabricCanvas.centerObject(objs[0]);
+    fabricCanvas.renderAll();
+    setStatus('🔍 Fit Canvas to Viewport Screen');
   };
 
   // PDF Keyword Search & Vector Highlight Engine

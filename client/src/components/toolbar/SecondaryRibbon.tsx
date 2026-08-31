@@ -1,7 +1,8 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop, ShieldAlert, Search } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText, Mic, FilePlus, Pipette, Crop, ShieldAlert } from 'lucide-react';
 import { VectorShapesToolbar } from './VectorShapesToolbar';
 import { AlignmentToolbar } from './AlignmentToolbar';
+import { GridPatternToolbar } from './GridPatternToolbar';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -18,8 +19,8 @@ interface SecondaryRibbonProps {
   onOpenPdfMergerModal?: () => void;
   onOpenCropModal?: () => void;
   onOpenRedactionModal?: () => void;
-  onOpenPdfSearchToolbar?: () => void;
   onOpenEyeDropper?: () => void;
+  onSetCanvasPattern?: (patternType: 'white' | 'dot' | 'blueprint' | 'isometric' | 'dark') => void;
   onAddRectangle?: () => void;
   onAddCircle?: () => void;
   onAddTriangle?: () => void;
@@ -53,8 +54,8 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   onOpenPdfMergerModal,
   onOpenCropModal,
   onOpenRedactionModal,
-  onOpenPdfSearchToolbar,
   onOpenEyeDropper,
+  onSetCanvasPattern,
   onAddRectangle,
   onAddCircle,
   onAddTriangle,
@@ -86,13 +87,6 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
         </button>
       )}
 
-      {/* SEARCH PDF BUTTON */}
-      {onOpenPdfSearchToolbar && (
-        <button onClick={onOpenPdfSearchToolbar} style={prominentBtnStyle('#0284c7')}>
-          <Search size={14} /> Search PDF
-        </button>
-      )}
-
       {/* BLACKOUT REDACTION BUTTON */}
       {onOpenRedactionModal && (
         <button onClick={onOpenRedactionModal} style={prominentBtnStyle('#ef4444')}>
@@ -108,6 +102,15 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       )}
 
       <div style={{ width: '1px', height: '18px', backgroundColor: borderCol, margin: '0 2px' }} />
+
+      {/* PAPER GRID PATTERN SELECTOR */}
+      {onSetCanvasPattern && (
+        <GridPatternToolbar 
+          onSetCanvasPattern={onSetCanvasPattern}
+          borderCol={borderCol}
+          bgBar={bgBar}
+        />
+      )}
 
       <button title="Undo" onClick={handleUndo} disabled={undoStackLength <= 1} style={iconToolBtnStyle(false)}>
         <RotateCcw size={14} />
