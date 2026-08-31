@@ -187,7 +187,7 @@ const handlePaystackInit = async (req: any, res: any) => {
 };
 
 /**
- * Paystack Verification Handler (Dual Route Matcher)
+ * Paystack Verification Handler
  */
 const handlePaystackVerify = async (req: any, res: any) => {
   try {
@@ -213,9 +213,16 @@ const handlePaystackVerify = async (req: any, res: any) => {
   }
 };
 
-// Register Paystack endpoints on both Vercel path variations
-app.post(['/api/billing/initialize-paystack', '/billing/initialize-paystack'], handlePaystackInit);
-app.get(['/api/billing/verify-paystack/:reference', '/billing/verify-paystack/:reference'], handlePaystackVerify);
+// Create flexible Router for Billing endpoints (Catches any Vercel URL rewrite variation)
+const billingRouter = express.Router();
+billingRouter.post('/initialize-paystack', handlePaystackInit);
+billingRouter.get('/verify-paystack/:reference', handlePaystackVerify);
+
+// Mount router across all potential Vercel rewrite paths
+app.use('/api/billing', billingRouter);
+app.use('/billing', billingRouter);
+app.use('/api', billingRouter);
+app.use('/', billingRouter);
 
 /**
  * Whisper AI Transcription Route (Dual Route Matcher)
