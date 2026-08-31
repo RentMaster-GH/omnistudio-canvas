@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type, PenTool } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool, ScanText } from 'lucide-react';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -11,6 +11,7 @@ interface SecondaryRibbonProps {
   applyWatermarkToAllPages: (text?: string) => void;
   applyCanvasPresetRatio: (preset: string) => void;
   onOpenSignatureModal?: () => void;
+  onRunOcr?: () => void;
   bgBar: string;
   borderCol: string;
 }
@@ -25,6 +26,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   applyWatermarkToAllPages,
   applyCanvasPresetRatio,
   onOpenSignatureModal,
+  onRunOcr,
   bgBar,
   borderCol,
 }) => {
@@ -55,6 +57,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       {onOpenSignatureModal && (
         <button onClick={onOpenSignatureModal} style={prominentBtnStyle('#8b5cf6')}>
           <PenTool size={14} /> Sign / Stamp
+        </button>
+      )}
+
+      {/* OCR SCANNER BUTTON */}
+      {onRunOcr && (
+        <button onClick={onRunOcr} style={prominentBtnStyle('#059669')}>
+          <ScanText size={14} /> Scan Text (OCR)
         </button>
       )}
 

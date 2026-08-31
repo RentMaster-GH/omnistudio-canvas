@@ -3,6 +3,7 @@ import * as fabric from 'fabric';
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
 import { jsPDF } from 'jspdf';
+import Tesseract from 'tesseract.js';
 
 import { MainToolbar } from './components/toolbar/MainToolbar';
 import { SecondaryRibbon } from './components/toolbar/SecondaryRibbon';
@@ -12,6 +13,7 @@ import { CanvasViewport } from './components/viewport/CanvasViewport';
 import { useCanvasSocket } from './components/useCanvasSocket';
 import { SignatureModal } from './components/toolbar/SignatureModal';
 import { TimelineBar } from './components/timeline/TimelineBar';
+import { OcrModal } from './components/toolbar/OcrModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -111,6 +113,12 @@ function CanvasStudio() {
   // Digital Signature Modal State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
 
+  // OCR State
+  const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatusText, setOcrStatusText] = useState('Initializing OCR Engine...');
+  const [extractedOcrText, setExtractedOcrText] = useState('');
+
   // Timeline & Playback State
   const [isPlaying, setIsPlaying] = useState(false);
   const [timelineSec, setTimelineSec] = useState(0);
@@ -171,6 +179,60 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // OCR Execution Handler
+  const handleRunOcr = async () => {
+    if (!fabricCanvas) {
+      alert('Please open a document or image first to run OCR!');
+      return;
+    }
+
+    setIsOcrModalOpen(true);
+    setOcrProgress(5);
+    setOcrStatusText('Capturing canvas viewport frame...');
+
+    try {
+      const dataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
+      setOcrStatusText('Analyzing scanned characters with OCR...');
+
+      const result = await Tesseract.recognize(dataUrl, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            const p = Math.round(m.progress * 100);
+            setOcrProgress(p);
+            setOcrStatusText(`Extracting text... ${p}%`);
+          }
+        },
+      });
+
+      setExtractedOcrText(result.data.text || 'No text detected on canvas.');
+      setOcrProgress(100);
+      setOcrStatusText('OCR Complete!');
+    } catch (err: any) {
+      console.error('OCR Error:', err);
+      alert(`OCR Scanning failed: ${err.message}`);
+      setIsOcrModalOpen(false);
+    }
+  };
+
+  const handleInsertOcrAsDocNode = (text: string) => {
+    const ITextClass = getFabricIText();
+    if (ITextClass && fabricCanvas) {
+      const textObj = new ITextClass(text, {
+        left: 150,
+        top: 150,
+        fontSize: 18,
+        fontFamily: 'Arial',
+        fill: '#0f172a',
+        width: 400,
+      });
+      fabricCanvas.add(textObj);
+      fabricCanvas.setActiveObject(textObj);
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('📄 OCR extracted text inserted onto Canvas!');
+    }
   };
 
   // Save Signature Image onto Canvas Surface
@@ -862,6 +924,7 @@ function CanvasStudio() {
         applyWatermarkToAllPages={applyWatermarkToAllPages}
         applyCanvasPresetRatio={applyCanvasPresetRatio}
         onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
+        onRunOcr={handleRunOcr}
         bgBar={bgBar}
         borderCol={borderCol}
       />
@@ -907,7 +970,19 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 5. BOTTOM MULTI-TRACK TIMELINE BAR */}
+      {/* 5. OCR SCANNER PROGRESS MODAL */}
+      <OcrModal 
+        isOpen={isOcrModalOpen}
+        onClose={() => setIsOcrModalOpen(false)}
+        progress={ocrProgress}
+        statusText={ocrStatusText}
+        extractedText={extractedOcrText}
+        onInsertAsDocNode={handleInsertOcrAsDocNode}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
+
+      {/* 6. BOTTOM MULTI-TRACK TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
         onTogglePlay={togglePlayPause}
