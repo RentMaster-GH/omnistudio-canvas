@@ -21,6 +21,7 @@ import { MediaLibraryModal } from './components/toolbar/MediaLibraryModal';
 import { PdfMergerModal } from './components/toolbar/PdfMergerModal';
 import { CropMaskModal } from './components/toolbar/CropMaskModal';
 import { RedactionModal } from './components/toolbar/RedactionModal';
+import { PdfSearchToolbar } from './components/toolbar/PdfSearchToolbar';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -138,6 +139,10 @@ function CanvasStudio() {
   // Redaction Modal State
   const [isRedactionModalOpen, setIsRedactionModalOpen] = useState(false);
 
+  // PDF Search Toolbar State
+  const [isPdfSearchOpen, setIsPdfSearchOpen] = useState(false);
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+
   // OCR State
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
@@ -204,6 +209,51 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // PDF Keyword Search & Vector Highlight Engine
+  const handleSearchAndHighlight = (keyword: string) => {
+    if (!fabricCanvas) return;
+    handleClearHighlights();
+
+    let matches = 0;
+    const objs = fabricCanvas.getObjects();
+
+    objs.forEach((obj: any) => {
+      if (typeof obj.text === 'string' && obj.text.toLowerCase().includes(keyword.toLowerCase())) {
+        matches++;
+        const highlightBox = new (fabric as any).Rect({
+          left: obj.left - 4,
+          top: obj.top - 2,
+          width: obj.width * (obj.scaleX || 1) + 8,
+          height: obj.height * (obj.scaleY || 1) + 4,
+          fill: 'rgba(234, 179, 8, 0.45)', // Bright yellow vector highlight
+          stroke: '#eab308',
+          strokeWidth: 1,
+          rx: 3,
+          ry: 3,
+          isSearchHighlight: true,
+        });
+        fabricCanvas.add(highlightBox);
+      }
+    });
+
+    setSearchMatchCount(matches);
+    fabricCanvas.renderAll();
+    setStatus(`🔍 Found and highlighted ${matches} occurrences of "${keyword}"`);
+  };
+
+  const handleClearHighlights = () => {
+    if (!fabricCanvas) return;
+    const objs = fabricCanvas.getObjects();
+    objs.forEach((obj: any) => {
+      if (obj.isSearchHighlight) {
+        fabricCanvas.remove(obj);
+      }
+    });
+    setSearchMatchCount(0);
+    fabricCanvas.renderAll();
+    setStatus('Cleared Search Highlights');
   };
 
   // Optional Redaction Handler
