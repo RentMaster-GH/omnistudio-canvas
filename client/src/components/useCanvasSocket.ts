@@ -1,58 +1,53 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_SERVER_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
-  : window.location.origin;
-
-export const useCanvasSocket = (
-  fabricCanvas: any,
-  onRemoteGraphUpdate?: (graphData: any) => void
-) => {
+export function useCanvasSocket(fabricCanvas: any) {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // Initialize Socket.io connection
-    const socket = io(SOCKET_SERVER_URL, {
-      transports: ['websocket', 'polling'],
+    // 1. Detect Vercel Serverless environment
+    const isVercel = window.location.hostname.includes('vercel.app');
+    const customSocketUrl = import.meta.env.VITE_SOCKET_URL;
+
+    // Vercel serverless functions do not support WebSockets.
+    // Skip auto-connecting on Vercel unless a dedicated socket server URL is provided.
+    if (isVercel && !customSocketUrl) {
+      console.log('ℹ️ Running on Vercel Serverless. Real-time multiplayer WebSockets disabled.');
+      return;
+    }
+
+    const socketUrl = customSocketUrl || (
+      window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : window.location.origin
+    );
+
+    const socket = io(socketUrl, {
+      transports: ['polling', 'websocket'],
+      autoConnect: true,
+      reconnectionAttempts: 2,
+      timeout: 3000,
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('Socket connection notice:', err.message);
+      // Immediately disconnect on error to prevent continuous 404 polling on serverless hosts
+      socket.disconnect();
     });
 
     socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('⚡ [OmniStudio Socket] Connected to real-time server:', socket.id);
-    });
-
-    // Listen for incoming graph changes from other collaborators
-    socket.on('GRAPH_UPDATED', (data: any) => {
-      console.log('🔄 [OmniStudio Socket] Received remote graph update');
-      if (fabricCanvas && data.canvasJson) {
-        fabricCanvas.loadFromJSON(data.canvasJson, () => {
-          fabricCanvas.renderAll();
-        });
-      }
-      if (onRemoteGraphUpdate) {
-        onRemoteGraphUpdate(data);
-      }
-    });
 
     return () => {
       socket.disconnect();
     };
   }, [fabricCanvas]);
 
-  // Function to emit local changes to all connected peers
   const broadcastCanvasChange = (canvasJson: any) => {
+    // Safely emit only if connected
     if (socketRef.current && socketRef.current.connected) {
-      socketRef.current.emit('UPDATE_GRAPH', {
-        timestamp: new Date().toISOString(),
-        canvasJson,
-      });
+      socketRef.current.emit('canvas-change', canvasJson);
     }
   };
 
-  return {
-    socket: socketRef.current,
-    broadcastCanvasChange,
-  };
-};
+  return { broadcastCanvasChange };
+}
