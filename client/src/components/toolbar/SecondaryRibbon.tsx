@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, RotateCcw, RotateCw, Type } from 'lucide-react';
+import { Upload, RotateCcw, RotateCw, Type, PenTool } from 'lucide-react';
 
 interface SecondaryRibbonProps {
   handlePdfDocumentUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -10,6 +10,7 @@ interface SecondaryRibbonProps {
   addText: () => void;
   applyWatermarkToAllPages: (text?: string) => void;
   applyCanvasPresetRatio: (preset: string) => void;
+  onOpenSignatureModal?: () => void;
   bgBar: string;
   borderCol: string;
 }
@@ -23,6 +24,7 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
   addText,
   applyWatermarkToAllPages,
   applyCanvasPresetRatio,
+  onOpenSignatureModal,
   bgBar,
   borderCol,
 }) => {
@@ -48,6 +50,13 @@ export const SecondaryRibbon: React.FC<SecondaryRibbonProps> = ({
       <button title="Add Editable Text Box" onClick={addText} style={prominentBtnStyle('#0284c7')}>
         <Type size={14} /> Add Text
       </button>
+
+      {/* SIGN & STAMP BUTTON */}
+      {onOpenSignatureModal && (
+        <button onClick={onOpenSignatureModal} style={prominentBtnStyle('#8b5cf6')}>
+          <PenTool size={14} /> Sign / Stamp
+        </button>
+      )}
 
       <button onClick={() => applyWatermarkToAllPages('CONFIDENTIAL')} style={prominentBtnStyle('#ef4444')}>
         💧 Watermark Document

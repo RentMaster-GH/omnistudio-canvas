@@ -10,6 +10,7 @@ import { PageNavigator } from './components/sidebar/PageNavigator';
 import { LayersStack } from './components/sidebar/LayersStack';
 import { CanvasViewport } from './components/viewport/CanvasViewport';
 import { useCanvasSocket } from './components/useCanvasSocket';
+import { SignatureModal } from './components/toolbar/SignatureModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -106,6 +107,9 @@ function CanvasStudio() {
   const [, setRecentProjects] = useState<any[]>([]);
   const [, setShowProjectsModal] = useState(false);
 
+  // Digital Signature Modal State
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+
   // Real-Time Multiplayer Socket Hook
   const { broadcastCanvasChange } = useCanvasSocket(fabricCanvas);
 
@@ -154,6 +158,36 @@ function CanvasStudio() {
 
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+
+  // Save Signature Image onto Canvas Surface
+  const handleSaveSignature = async (dataUrl: string) => {
+    if (!fabricCanvas) return;
+    const ImageClass = (fabric as any).FabricImage || (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
+    if (ImageClass) {
+      const imgObj = await ImageClass.fromURL(dataUrl);
+      imgObj.scaleToWidth(180);
+      imgObj.set({ left: 300, top: 200 });
+      fabricCanvas.add(imgObj);
+      fabricCanvas.setActiveObject(imgObj);
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus('✍️ Added Digital Signature to Document Surface');
+    }
+  };
+
+  // Save Vector Stamp onto Canvas Surface
+  const handleAddStamp = (stampText: string, color: string) => {
+    if (!fabricCanvas) return;
+    const stampTextObj = new (fabric as any).Text(stampText, { fontSize: 20, fontWeight: 'bold', fill: color, left: 15, top: 10 });
+    const stampRectObj = new (fabric as any).Rect({ width: stampTextObj.width + 30, height: stampTextObj.height + 20, fill: 'rgba(255, 255, 255, 0.95)', stroke: color, strokeWidth: 3, rx: 6, ry: 6 });
+    const stampGroup = new (fabric as any).Group([stampRectObj, stampTextObj], { left: 350, top: 150, angle: -10 });
+
+    fabricCanvas.add(stampGroup);
+    fabricCanvas.setActiveObject(stampGroup);
+    fabricCanvas.renderAll();
+    saveState();
+    setStatus(`🏷️ Added Stamp: "${stampText}"`);
+  };
 
   // --- GOOGLE FONTS DYNAMIC INJECTION ENGINE ---
   useEffect(() => {
@@ -813,6 +847,7 @@ function CanvasStudio() {
         addText={addText}
         applyWatermarkToAllPages={applyWatermarkToAllPages}
         applyCanvasPresetRatio={applyCanvasPresetRatio}
+        onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
         bgBar={bgBar}
         borderCol={borderCol}
       />
@@ -847,6 +882,16 @@ function CanvasStudio() {
           />
         </div>
       </div>
+
+      {/* 4. DIGITAL SIGNATURE & STAMP MODAL */}
+      <SignatureModal 
+        isOpen={isSignatureModalOpen}
+        onClose={() => setIsSignatureModalOpen(false)}
+        onSaveSignature={handleSaveSignature}
+        onAddStamp={handleAddStamp}
+        borderCol={borderCol}
+        bgBar={bgBar}
+      />
 
     </div>
   );
