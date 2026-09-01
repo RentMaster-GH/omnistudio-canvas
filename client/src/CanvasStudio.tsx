@@ -64,7 +64,6 @@ const getFabricClass = (className: string): any => {
   if (typeof f.default?.fabric?.[className] === 'function') return f.default.fabric[className];
   if (typeof f.fabric?.[className] === 'function') return f.fabric[className];
   
-  // Specific Fallbacks
   if (className === 'IText' && typeof f.Textbox === 'function') return f.Textbox;
   if (className === 'Image' && typeof f.FabricImage === 'function') return f.FabricImage;
   
@@ -133,6 +132,16 @@ function CanvasStudio() {
   const [isCroppingActive, setIsCroppingActive] = useState(false);
 
   const [, setShowProjectsModal] = useState(false);
+
+  // FIRST-TIME USER PIN SETUP & DEVICE SECURITY STATE
+  const [isPinSetupOpen, setIsPinSetupOpen] = useState(false);
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [enteredPin, setEnteredPin] = useState('');
+  const [isDeviceUnlocked, setIsDeviceUnlocked] = useState(() => {
+    const savedPin = localStorage.getItem('omni_device_pin');
+    return !savedPin; // Unlocked if no PIN set
+  });
 
   // Responsive Default Canvas Dimensions
   const [canvasWidth, setCanvasWidth] = useState(() => {
@@ -247,6 +256,53 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
+  // --- DEVICE SECURITY PIN MANAGEMENT HANDLERS ---
+  const handleCreateDevicePin = () => {
+    if (newPinInput.length !== 4 || !/^\d{4}$/.test(newPinInput)) {
+      alert('Please enter a 4-digit numeric PIN (e.g. 1234).');
+      return;
+    }
+    if (newPinInput !== confirmPinInput) {
+      alert('PIN numbers do not match. Please try again.');
+      return;
+    }
+    localStorage.setItem('omni_device_pin', newPinInput);
+    setIsDeviceUnlocked(true);
+    setIsPinSetupOpen(false);
+    setNewPinInput('');
+    setConfirmPinInput('');
+    alert('🔒 Security PIN set successfully! Your activities on this device are now protected.');
+  };
+
+  const handleVerifyDevicePin = () => {
+    const savedPin = localStorage.getItem('omni_device_pin');
+    if (enteredPin === savedPin) {
+      setIsDeviceUnlocked(true);
+      setEnteredPin('');
+    } else {
+      alert('❌ Incorrect Device PIN. Access denied.');
+    }
+  };
+
+  const handleRemoveDevicePin = () => {
+    if (confirm('Are you sure you want to remove PIN protection from this device?')) {
+      localStorage.removeItem('omni_device_pin');
+      setIsDeviceUnlocked(true);
+      setIsPinSetupOpen(false);
+      alert('🔓 Device PIN removed.');
+    }
+  };
+
+  const handleLockStudioNow = () => {
+    const savedPin = localStorage.getItem('omni_device_pin');
+    if (!savedPin) {
+      setIsPinSetupOpen(true);
+    } else {
+      setIsDeviceUnlocked(false);
+      notifyUser('🔒 Studio locked.');
+    }
+  };
+
   const handleResizeCanvas = (newWidth: number, newHeight: number) => {
     const w = Math.max(280, Math.min(3000, Math.round(newWidth)));
     const h = Math.max(280, Math.min(3000, Math.round(newHeight)));
@@ -267,8 +323,6 @@ function CanvasStudio() {
     if (!targetCanvas) return;
 
     let targetObj = targetCanvas.getActiveObject();
-    
-    // Fallback: If no object explicitly selected, pick first image/page object on stage
     if (!targetObj) {
       const objs = targetCanvas.getObjects();
       if (objs.length > 0) {
@@ -286,7 +340,6 @@ function CanvasStudio() {
     const RectClass = getFabricClass('Rect');
     if (!RectClass) return;
 
-    // Create interactive flexible crop bounding box with side and corner handles
     const targetW = targetObj.width * (targetObj.scaleX || 1);
     const targetH = targetObj.height * (targetObj.scaleY || 1);
     const cropWidth = targetW * 0.8;
@@ -305,7 +358,7 @@ function CanvasStudio() {
       cornerStyle: 'circle',
       cornerSize: 12,
       transparentCorners: false,
-      hasRotatingPoint: false, // Disables rotation during crop mode for clean alignment
+      hasRotatingPoint: false,
       lockRotation: true,
       borderColor: '#0284c7',
       borderScaleFactor: 2,
@@ -335,7 +388,6 @@ function CanvasStudio() {
       const scaleX = targetObj.scaleX || 1;
       const scaleY = targetObj.scaleY || 1;
 
-      // Relative crop box bounds
       const relLeft = (cropBox.left - targetObj.left) / scaleX;
       const relTop = (cropBox.top - targetObj.top) / scaleY;
       const relWidth = (cropBox.width * (cropBox.scaleX || 1)) / scaleX;
@@ -418,16 +470,13 @@ function CanvasStudio() {
       let printPagesHtml = '';
 
       if (pdfDoc && totalPages > 0) {
-        // Multi-page PDF Render Loop
         for (let i = 1; i <= totalPages; i++) {
           await renderPdfPageOntoCanvas(pdfDoc, i);
           const pageDataUrl = targetCanvas.toDataURL({ format: 'png', quality: 1.0 });
           printPagesHtml += `<div class="print-page"><img src="${pageDataUrl}" /></div>`;
         }
-        // Restore active page
         await renderPdfPageOntoCanvas(pdfDoc, pageNum);
       } else {
-        // Single Canvas Viewport Print
         const currentDataUrl = targetCanvas.toDataURL({ format: 'png', quality: 1.0 });
         printPagesHtml = `<div class="print-page"><img src="${currentDataUrl}" /></div>`;
       }
@@ -566,7 +615,6 @@ function CanvasStudio() {
       await page.render({ canvasContext: context, viewport }).promise;
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      // Native Image Preloader
       const img = new Image();
       img.onerror = (e) => {
         console.error('HTML Image Preloader Failed:', e);
@@ -1456,6 +1504,29 @@ function CanvasStudio() {
   const textColor = darkMode ? '#f8fafc' : '#0f172a';
   const borderCol = darkMode ? '#334155' : '#cbd5e1';
 
+  // LOCK SCREEN IF PIN IS SET AND UNLOCKED IS FALSE
+  if (!isDeviceUnlocked) {
+    return (
+      <div style={{ padding: '40px', backgroundColor: '#0f172a', color: '#ffffff', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+        <h2 style={{ marginBottom: '8px' }}>🔒 Device PIN Security Protection</h2>
+        <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '20px' }}>Enter your 4-digit PIN to access your studio materials on this device:</p>
+        <input
+          type="password"
+          maxLength={4}
+          value={enteredPin}
+          onChange={(e) => setEnteredPin(e.target.value)}
+          placeholder="••••"
+          style={{ padding: '12px', fontSize: '24px', textAlign: 'center', letterSpacing: '10px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#1e293b', color: '#38bdf8', width: '160px', marginBottom: '20px' }}
+        />
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={handleVerifyDevicePin} style={{ padding: '10px 24px', backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+            🔓 Unlock Studio
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
@@ -1516,28 +1587,14 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (EXPLICITLY RENDERED ACTION BUTTONS) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
-        {/* LEFT: QUICK LAUNCHERS (EDIT TEXT, CROP, DONE CHECKPOINT, PRINT, RECORDER, CHAT) */}
+        {/* LEFT: QUICK LAUNCHERS (EDIT TEXT, CROP, DONE CHECKPOINT, PRINT, RECORDER, PIN LOCK, CHAT) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
           <button
             onClick={handleExtractAndEditPdfText}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#10b981',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
             title="Convert all printed text on the current PDF page into editable text boxes"
           >
             ✍️ Edit PDF Text
@@ -1545,21 +1602,7 @@ function CanvasStudio() {
 
           <button
             onClick={handleStartInteractiveCrop}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#0284c7',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)', touchAction: 'manipulation' }}
             title="Adjust top, bottom, and side boundaries to crop document or image"
           >
             ✂️ Crop Page/Image
@@ -1567,21 +1610,7 @@ function CanvasStudio() {
 
           <button
             onClick={handleSaveProgressCheckpoint}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#8b5cf6',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#8b5cf6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)', touchAction: 'manipulation' }}
             title="Save a permanent progress checkpoint and lock in changes up to this point"
           >
             ✅ Done (Checkpoint)
@@ -1589,43 +1618,23 @@ function CanvasStudio() {
 
           <button
             onClick={handlePrintDocument}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#f59e0b',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)', touchAction: 'manipulation' }}
             title="Open native print preview driver for physical printout"
           >
             🖨️ Print Document
           </button>
 
           <button
+            onClick={() => setIsPinSetupOpen(true)}
+            style={{ padding: '5px 12px', backgroundColor: '#64748b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(100, 116, 139, 0.4)', touchAction: 'manipulation' }}
+            title="Set or Manage 4-Digit Quick PIN to protect your activities on this device"
+          >
+            🔒 Protect Device (PIN)
+          </button>
+
+          <button
             onClick={() => setIsUnlimitedRecorderOpen(true)}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#3b82f6',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(59, 130, 246, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.4)', touchAction: 'manipulation' }}
             title="Record Unlimited Audio or Video and Transcribe to Text"
           >
             🎥 Record & Transcribe
@@ -1633,21 +1642,7 @@ function CanvasStudio() {
 
           <button
             onClick={() => setIsSocialMessengerOpen(true)}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: '#ec4899',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(236, 72, 153, 0.4)',
-              touchAction: 'manipulation'
-            }}
+            style={{ padding: '5px 12px', backgroundColor: '#ec4899', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(236, 72, 153, 0.4)', touchAction: 'manipulation' }}
             title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
           >
             💬 Chat & Calls
@@ -1837,6 +1832,60 @@ function CanvasStudio() {
           />
         </div>
       </div>
+
+      {/* 🔒 FIRST-TIME DEVICE PIN SETUP MODAL */}
+      {isPinSetupOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, backgroundColor: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '16px', padding: '28px', maxWidth: '400px', width: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', fontFamily: 'sans-serif', color: '#fff' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🔒 Device PIN Security Setup
+            </h3>
+            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '0 0 20px 0', lineHeight: '1.5' }}>
+              Create a 4-digit security PIN for this device. Anyone opening the app on this phone or computer will need this PIN to view your materials.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 'bold' }}>Create 4-Digit PIN:</label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  value={newPinInput}
+                  onChange={(e) => setNewPinInput(e.target.value)}
+                  placeholder="••••"
+                  style={{ width: '100%', padding: '10px', fontSize: '18px', textAlign: 'center', letterSpacing: '6px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#38bdf8', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '11px', color: '#cbd5e1', marginBottom: '4px', fontWeight: 'bold' }}>Confirm 4-Digit PIN:</label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  value={confirmPinInput}
+                  onChange={(e) => setConfirmPinInput(e.target.value)}
+                  placeholder="••••"
+                  style={{ width: '100%', padding: '10px', fontSize: '18px', textAlign: 'center', letterSpacing: '6px', borderRadius: '8px', border: '1px solid #334155', backgroundColor: '#0f172a', color: '#38bdf8', boxSizing: 'border-box' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              {localStorage.getItem('omni_device_pin') && (
+                <button onClick={handleRemoveDevicePin} style={{ padding: '8px 14px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  🗑️ Remove PIN
+                </button>
+              )}
+              <button onClick={() => setIsPinSetupOpen(false)} style={{ padding: '8px 14px', backgroundColor: '#334155', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleCreateDevicePin} style={{ padding: '8px 16px', backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                💾 Save & Protect Device
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODALS */}
       <TimedPaywallModal
