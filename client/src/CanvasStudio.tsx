@@ -27,8 +27,9 @@ import { WatermarkModal } from './components/toolbar/WatermarkModal';
 import { BrandPaletteHeader } from './components/toolbar/BrandPaletteHeader';
 import { PrecisionRuler } from './components/toolbar/PrecisionRuler';
 
-// Timed Paywall Modal Import
+// Timed Paywall & MoMo Selector Modal Imports
 import { TimedPaywallModal } from './components/toolbar/TimedPaywallModal';
+import { MomoCheckoutModal } from './components/toolbar/MomoCheckoutModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
@@ -120,17 +121,29 @@ function CanvasStudio() {
   const [canvasWidth, setCanvasWidth] = useState(1050);
   const [canvasHeight, setCanvasHeight] = useState(650);
 
-  // --- DUAL-MODE MONETIZATION: 30-MINUTE TIMED PAYWALL STATE ---
+  // --- APP MANAGER (ADMIN) BYPASS CHECK ---
+  const [isAppManager, setIsAppManager] = useState<boolean>(() => {
+    const isUrlAdmin = window.location.search.includes('admin=manager') || window.location.search.includes('role=manager');
+    const isSavedManager = localStorage.getItem('omni_user_role') === 'manager';
+    return isUrlAdmin || isSavedManager;
+  });
+
+  // --- ONE-TIME LIFETIME PAYMENT RECOGNITION & 30-MIN TIMER STATE ---
   const TIMER_DURATION_SEC = 1800; // 30 Minutes
 
   const [isProUnlocked, setIsProUnlocked] = useState<boolean>(() => {
-    return localStorage.getItem('omni_pro_unlocked') === 'true';
+    const hasPaidToken = localStorage.getItem('omni_pro_unlocked_token');
+    const hasUnlockedFlag = localStorage.getItem('omni_pro_unlocked') === 'true';
+    return isAppManager || hasPaidToken !== null || hasUnlockedFlag;
   });
 
   const [freeTimeRemainingSec, setFreeTimeRemainingSec] = useState<number>(() => {
     const savedTime = localStorage.getItem('omni_paywall_timer');
     return savedTime !== null ? Number(savedTime) : TIMER_DURATION_SEC;
   });
+
+  // MoMo Modal State
+  const [isMomoModalOpen, setIsMomoModalOpen] = useState(false);
 
   // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -188,12 +201,9 @@ function CanvasStudio() {
 
   const [, setTranscriptSegments] = useState<any[]>([]);
 
-  const isPanningRef = useRef(false);
-  const lastPosRef = useRef({ x: 0, y: 0 });
-
-  // 30-Minute Free Access Countdown Timer Effect
+  // 30-Minute Free Access Countdown Timer Effect (Disabled for App Manager & Paid Users)
   useEffect(() => {
-    if (isProUnlocked) return;
+    if (isProUnlocked || isAppManager) return;
 
     const interval = setInterval(() => {
       setFreeTimeRemainingSec((prev) => {
@@ -208,7 +218,7 @@ function CanvasStudio() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isProUnlocked]);
+  }, [isProUnlocked, isAppManager]);
 
   // Helper: Format Seconds => "29:45"
   const formatCountdown = (seconds: number) => {
@@ -237,6 +247,25 @@ function CanvasStudio() {
 
   const handleTimelineScrub = (newTime: number) => {
     setTimelineSec(newTime);
+  };
+
+  // --- ONE-TIME PAYMENT VERIFICATION HANDLER ---
+  const handlePaymentSuccessUnlock = (reference: string) => {
+    localStorage.setItem('omni_pro_unlocked', 'true');
+    localStorage.setItem('omni_pro_unlocked_token', `token_${reference}_${Date.now()}`);
+    setIsProUnlocked(true);
+    setStatus('🎉 Payment Verified! Lifetime Access Unlocked. Ref: ' + reference);
+    alert('🎉 Payment Successful! Your lifetime license has been recorded. You will never be prompted to pay again!');
+  };
+
+  // --- APP MANAGER (ADMIN) UNLOCK HANDLER ---
+  const handleAppManagerUnlock = () => {
+    localStorage.setItem('omni_user_role', 'manager');
+    localStorage.setItem('omni_pro_unlocked', 'true');
+    setIsAppManager(true);
+    setIsProUnlocked(true);
+    setStatus('👑 App Manager Mode Activated - Unrestricted Access Enabled');
+    alert('👑 App Manager Mode Activated! You now have lifetime unrestricted access without any payment requirements.');
   };
 
   // --- 1. ADVANCED MULTI-PAGE WATERMARK ENGINE ---
@@ -763,55 +792,17 @@ function CanvasStudio() {
     let width = 1050;
     let height = 650;
 
-    if (preset === '16:9') { width = 1120; height = 630; }       // HD 16:9 Widescreen
-    else if (preset === '9:16') { width = 450; height = 800; }   // Mobile Vertical
-    else if (preset === '1:1') { width = 700; height = 700; }    // Square Format
-    else if (preset === 'A4') { width = 794; height = 1123; }   // True High-Res A4 Ratio
+    if (preset === '16:9') { width = 1120; height = 630; }
+    else if (preset === '9:16') { width = 450; height = 800; }
+    else if (preset === '1:1') { width = 700; height = 700; }
+    else if (preset === 'A4') { width = 794; height = 1123; }
 
     handleResizeCanvas(width, height);
   };
 
-  // --- PAYSTACK 50 GHS UNLOCK CHECKOUT (INLINE POPUP) ---
-  // Works for both Upfront Early Unlock & Post-30-Minute Expired Paywall Lock!
+  // Triggers the MoMo & Regional Selector Modal
   const handlePaystackUpgrade = () => {
-    setStatus('⚡ Opening Paystack Checkout for 50 GHS Lifetime Access...');
-
-    if (!(window as any).PaystackPop) {
-      const script = document.createElement('script');
-      script.src = 'https://js.paystack.co/v1/inline.js';
-      script.async = true;
-      script.onload = () => triggerPaystackPopup();
-      document.body.appendChild(script);
-    } else {
-      triggerPaystackPopup();
-    }
-  };
-
-  const triggerPaystackPopup = () => {
-    const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_1ce038da68ee109f5e603f5b816613d9cf261be5';
-
-    const cleanGuestId = guestUserId.replace(/[^a-zA-Z0-9]/g, '');
-    const dummyEmail = `guest_${cleanGuestId}@omnistudio.app`;
-
-    const handler = (window as any).PaystackPop.setup({
-      key: PAYSTACK_PUBLIC_KEY,
-      email: dummyEmail,
-      amount: 5000, // 50 GHS = 5,000 Pesewas
-      currency: 'GHS',
-      ref: `omni_50ghs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      callback: (response: any) => {
-        // Unlock Pro Access Permanently
-        localStorage.setItem('omni_pro_unlocked', 'true');
-        setIsProUnlocked(true);
-        setStatus('🎉 Payment Successful! Unlimited Access Unlocked Permanently. Ref: ' + response.reference);
-        alert('🎉 Payment Successful! Unlimited Studio Access is now permanently unlocked on your account.');
-      },
-      onClose: () => {
-        setStatus('Ready - View Mode');
-      },
-    });
-
-    handler.openIframe();
+    setIsMomoModalOpen(true);
   };
 
   const addText = () => {
@@ -997,7 +988,7 @@ function CanvasStudio() {
         setDarkMode={setDarkMode}
       />
 
-      {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR & UPFRONT/TIMED PAYWALL HEADER BAR */}
+      {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR & PAYWALL HEADER STATUS */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
@@ -1034,8 +1025,16 @@ function CanvasStudio() {
           borderCol={borderCol}
         />
 
-        {/* ⏱️ DUAL-MODE PAYWALL: LIVE TIMER + OPTION A: UPFRONT 50 GHS UNLOCK BUTTON */}
-        {!isProUnlocked ? (
+        {/* STATUS BADGE: APP MANAGER vs PAID USER vs COUNTDOWN TIMER */}
+        {isAppManager ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+            <span>👑 App Manager - Free Access</span>
+          </div>
+        ) : isProUnlocked ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+            <span>🎉 Lifetime Access Unlocked</span>
+          </div>
+        ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{
               display: 'flex',
@@ -1049,11 +1048,10 @@ function CanvasStudio() {
               fontWeight: 'bold',
               color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
             }}>
-              <span>⏱️ Free Trial:</span>
+              <span>⏱️ Free Access:</span>
               <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
             </div>
 
-            {/* UPFRONT PAYMENT BUTTON: Prevents the 30-minute block from activating */}
             <button
               onClick={handlePaystackUpgrade}
               style={{
@@ -1068,14 +1066,10 @@ function CanvasStudio() {
                 boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
                 transition: 'all 0.15s ease'
               }}
-              title="Pay 50 GHS upfront to prevent 30-minute lock"
+              title="Pay 50 GHS upfront to unlock permanent access"
             >
-              ⚡ Unlock Early (50 GHS)
+              ⚡ Unlock Lifetime Access
             </button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-            <span>🎉 Unlimited Access Unlocked</span>
           </div>
         )}
 
@@ -1205,14 +1199,23 @@ function CanvasStudio() {
         </div>
       </div>
 
-      {/* 🔒 OPTION B: 30-MINUTE EXPIRED PAYWALL LOCK MODAL (Triggers when free trial hits 0:00) */}
+      {/* 🔒 30-MINUTE EXPIRED PAYWALL LOCK MODAL */}
       <TimedPaywallModal
-        isOpen={!isProUnlocked && freeTimeRemainingSec <= 0}
+        isOpen={!isProUnlocked && !isAppManager && freeTimeRemainingSec <= 0}
         onUnlockPaystack={handlePaystackUpgrade}
         formattedPrice="50 GHS"
       />
 
-      {/* 4. WATERMARK ENGINE MODAL (Integrated with totalPages & currentPage props) */}
+      {/* 📱 MOMO COUNTRY, CURRENCY & PROVIDER SELECTOR MODAL */}
+      <MomoCheckoutModal
+        isOpen={isMomoModalOpen}
+        onClose={() => setIsMomoModalOpen(false)}
+        onPaySuccess={handlePaymentSuccessUnlock}
+        onManagerUnlock={handleAppManagerUnlock}
+        guestUserId={guestUserId}
+      />
+
+      {/* 4. WATERMARK ENGINE MODAL */}
       <WatermarkModal
         isOpen={isWatermarkModalOpen}
         onClose={() => setIsWatermarkModalOpen(false)}
