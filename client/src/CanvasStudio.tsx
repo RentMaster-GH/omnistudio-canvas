@@ -143,6 +143,11 @@ function CanvasStudio() {
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
   const [isCroppingActive, setIsCroppingActive] = useState(false);
 
+  // DIRECT CONTENT STREAM EDITOR STATE
+  const [isStreamEditingActive, setIsStreamEditingActive] = useState(false);
+  const [extractedStreamNodes, setExtractedStreamNodes] = useState<any[]>([]);
+  const [areNodesHighlighted, setAreNodesHighlighted] = useState(false);
+
   // PRECISION ERASER ENGINE STATE
   const [isEraserActive, setIsEraserActive] = useState(false);
   const [eraserSize, setEraserSize] = useState<number>(8);
@@ -296,7 +301,7 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE WITH VISUAL AUTO-SELECT ---
+  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE WITH SETCOORDS VISUAL SELECTION ---
   const handleStartLiveContentStreamEditing = async () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!pdfDoc || !targetCanvas) {
@@ -313,7 +318,7 @@ function CanvasStudio() {
 
       const stageW = canvasWidth || 1050;
       const stageH = canvasHeight || 650;
-      const scaleX = (stageW - 24) / unscaledViewportWidth(viewport);
+      const scaleX = (stageW - 24) / viewport.width;
       const scaleY = (stageH - 24) / viewport.height;
       const scale = Math.min(scaleX, scaleY);
 
@@ -353,6 +358,7 @@ function CanvasStudio() {
 
           targetCanvas.add(streamTextNode);
           streamTextNode.bringToFront();
+          streamTextNode.setCoords(); // Crucial Fabric v5 call to force selection bounding box coordinates
           extractedTextNodes.push(streamTextNode);
         }
       });
@@ -360,21 +366,43 @@ function CanvasStudio() {
       // Auto-select first extracted text block so blue handles show up on screen immediately
       if (extractedTextNodes.length > 0) {
         targetCanvas.setActiveObject(extractedTextNodes[0]);
+        extractedTextNodes[0].setCoords();
       }
 
       targetCanvas.renderAll();
       updateLayersList();
       saveState(targetCanvas);
 
+      setExtractedStreamNodes(extractedTextNodes);
+      setIsStreamEditingActive(true);
+
       notifyUser(`⚡ Stream Editor Active: ${extractedTextNodes.length} text blocks ready on screen!`);
-      alert(`⚡ Direct Stream Editor Active!\n\nSuccessfully converted ${extractedTextNodes.length} text lines into live editable text blocks!\n\nWe have automatically selected the first text block on your screen. Click on ANY text block on the canvas (or layer on the right side) to type and edit it immediately!`);
+      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedTextNodes.length} text lines with font mapping.\n\nWe have automatically selected the first text block on screen with blue handles. Click any text block on your screen to type and edit!`);
     } catch (err: any) {
       console.error('Content Stream Editing Error:', err);
       alert('Content Stream Extraction Error: ' + err.message);
     }
   };
 
-  const unscaledViewportWidth = (viewport: any) => viewport.width || 1050;
+  const handleToggleHighlightStreamNodes = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas || extractedStreamNodes.length === 0) return;
+
+    const nextState = !areNodesHighlighted;
+    setAreNodesHighlighted(nextState);
+
+    extractedStreamNodes.forEach((node) => {
+      node.set({
+        stroke: nextState ? '#0284c7' : null,
+        strokeWidth: nextState ? 1 : 0,
+        strokeDashArray: nextState ? [4, 4] : null,
+      });
+      node.setCoords();
+    });
+
+    targetCanvas.renderAll();
+    notifyUser(nextState ? '🎯 Highlighted all editable text fields on page!' : '🎯 Cleared text outlines.');
+  };
 
   // PRECISION ERASER ENGINE TOGGLE
   const handleTogglePrecisionEraser = () => {
@@ -599,7 +627,7 @@ function CanvasStudio() {
             });
             targetCanvas.add(liveText);
             targetCanvas.renderAll();
-            saveState(targetCanvas);
+            saveState(liveText);
           }
         }
       };
@@ -713,6 +741,7 @@ function CanvasStudio() {
 
     targetCanvas.add(cropBox);
     targetCanvas.setActiveObject(cropBox);
+    cropBox.setCoords();
     targetCanvas.renderAll();
 
     cropRectRef.current = cropBox;
@@ -884,6 +913,8 @@ function CanvasStudio() {
         fill: '#475569',
       });
       targetCanvas.add(title, subtitle);
+      title.setCoords();
+      subtitle.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
       notifyUser('🚀 Loaded Sample OmniStudio Canvas Project');
@@ -912,6 +943,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(redactionBox);
       targetCanvas.setActiveObject(redactionBox);
+      redactionBox.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
       setIsRedactionModalOpen(false);
@@ -985,6 +1017,7 @@ function CanvasStudio() {
           targetCanvas.clear();
           targetCanvas.add(fabricImg);
           targetCanvas.sendToBack(fabricImg);
+          fabricImg.setCoords();
           targetCanvas.renderAll();
           
           updateLayersList();
@@ -1098,6 +1131,7 @@ function CanvasStudio() {
 
       targetCanvas.add(watermarkObj);
       targetCanvas.setActiveObject(watermarkObj);
+      watermarkObj.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
       notifyUser(`💧 Watermark "${text}" applied to target range: ${pageRange}`);
@@ -1180,6 +1214,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ left: 20 });
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1190,6 +1225,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
     activeObj.centerH();
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1200,6 +1236,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ left: targetCanvas.width - activeObj.width * (activeObj.scaleX || 1) - 20 });
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1210,6 +1247,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ top: 20 });
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1220,6 +1258,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
     activeObj.centerV();
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1230,6 +1269,7 @@ function CanvasStudio() {
     const activeObj = targetCanvas.getActiveObject();
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ top: targetCanvas.height - activeObj.height * (activeObj.scaleY || 1) - 20 });
+    activeObj.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1309,6 +1349,7 @@ function CanvasStudio() {
           imgObj.set({ left: 250, top: 180 });
           targetCanvas.add(imgObj);
           targetCanvas.setActiveObject(imgObj);
+          imgObj.setCoords();
           targetCanvas.renderAll();
           updateLayersList();
           saveState(targetCanvas);
@@ -1329,6 +1370,7 @@ function CanvasStudio() {
         });
         targetCanvas.add(textObj);
         targetCanvas.setActiveObject(textObj);
+        textObj.setCoords();
         targetCanvas.renderAll();
         updateLayersList();
         saveState(targetCanvas);
@@ -1354,6 +1396,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(rect);
       targetCanvas.setActiveObject(rect);
+      rect.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1374,6 +1417,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(circle);
       targetCanvas.setActiveObject(circle);
+      circle.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1395,6 +1439,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(triangle);
       targetCanvas.setActiveObject(triangle);
+      triangle.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1411,6 +1456,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(line);
       targetCanvas.setActiveObject(line);
+      line.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1462,6 +1508,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
+      textObj.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1482,6 +1529,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
+      textObj.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1531,6 +1579,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
+      textObj.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1548,6 +1597,7 @@ function CanvasStudio() {
         imgObj.set({ left: 300, top: 200 });
         targetCanvas.add(imgObj);
         targetCanvas.setActiveObject(imgObj);
+        imgObj.setCoords();
         targetCanvas.renderAll();
         updateLayersList();
         saveState(targetCanvas);
@@ -1570,6 +1620,7 @@ function CanvasStudio() {
 
       targetCanvas.add(stampGroup);
       targetCanvas.setActiveObject(stampGroup);
+      stampGroup.setCoords();
       targetCanvas.renderAll();
       saveState(targetCanvas);
     }
@@ -1593,6 +1644,7 @@ function CanvasStudio() {
 
     targetCanvas.add(text);
     targetCanvas.setActiveObject(text);
+    text.setCoords();
     targetCanvas.renderAll();
     saveState(targetCanvas);
   };
@@ -1870,7 +1922,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES DIRECT STREAM TEXT EDITOR BUTTON) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
@@ -2027,6 +2079,19 @@ function CanvasStudio() {
 
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
+          {/* FLOATING ACTION OVERLAY FOR DIRECT STREAM TEXT EDITOR */}
+          {isStreamEditingActive && (
+            <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#0f172a', padding: '8px 16px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #10b981' }}>
+              <span style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold' }}>⚡ Direct Stream Text Editor Active ({extractedStreamNodes.length} blocks):</span>
+              <button onClick={handleToggleHighlightStreamNodes} style={{ padding: '4px 12px', backgroundColor: areNodesHighlighted ? '#0284c7' : '#1e293b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                {areNodesHighlighted ? '🎯 Outlines ON' : '🎯 Highlight All Text Blocks'}
+              </button>
+              <button onClick={() => setIsStreamEditingActive(false)} style={{ padding: '4px 12px', backgroundColor: '#334155', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ✅ Done Editing
+              </button>
+            </div>
+          )}
+
           {/* FLOATING PRECISION ERASER CONTROL TOOLBAR */}
           {isEraserActive && (
             <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#0f172a', padding: '8px 16px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #ea580c' }}>
