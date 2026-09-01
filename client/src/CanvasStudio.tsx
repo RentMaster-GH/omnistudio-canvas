@@ -131,7 +131,12 @@ function CanvasStudio() {
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
   const [isCroppingActive, setIsCroppingActive] = useState(false);
 
-  // 1. IN-APP NATIVE CAMERA / MICROPHONE RECORDING STATE
+  // PRECISION ERASER ENGINE STATE
+  const [isEraserActive, setIsEraserActive] = useState(false);
+  const [eraserSize, setEraserSize] = useState<number>(8); // Pinpoint 8px default
+  const [eraserMode, setEraserMode] = useState<'precision' | 'object'>('precision');
+
+  // IN-APP NATIVE RECORDING STATE
   const [isNativeRecording, setIsNativeRecording] = useState(false);
   const [nativeRecordingType, setNativeRecordingType] = useState<'video' | 'audio'>('video');
   const [recordingSec, setRecordingSec] = useState(0);
@@ -140,7 +145,7 @@ function CanvasStudio() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
-  // 2. REAL-TIME LIVE STREAMING TRANSCRIBER STATE
+  // REAL-TIME LIVE STREAMING TRANSCRIBER STATE
   const [isLiveStreamingSpeech, setIsLiveStreamingSpeech] = useState(false);
   const speechRecognitionRef = useRef<any>(null);
 
@@ -258,7 +263,6 @@ function CanvasStudio() {
     return () => clearInterval(interval);
   }, [isProUnlocked, isAppManager]);
 
-  // Recording Timer Effect
   useEffect(() => {
     let interval: any;
     if (isNativeRecording) {
@@ -280,7 +284,76 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- 1 & 3. DEVICE MEDIA CAPTURE & IN-APP NATIVE RECORDING ENGINE ---
+  // --- PRECISION ERASER ENGINE TOGGLE ---
+  const handleTogglePrecisionEraser = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    if (isEraserActive) {
+      targetCanvas.isDrawingMode = false;
+      targetCanvas.defaultCursor = 'grab';
+      setIsEraserActive(false);
+      notifyUser('🖐️ Exited Eraser mode.');
+      return;
+    }
+
+    setIsEraserActive(true);
+    setActiveTool('eraser');
+
+    if (eraserMode === 'precision') {
+      targetCanvas.isDrawingMode = true;
+      const PencilBrushClass = getFabricClass('PencilBrush');
+      if (PencilBrushClass) {
+        const eraserBrush = new PencilBrushClass(targetCanvas);
+        eraserBrush.width = eraserSize;
+        eraserBrush.color = '#ffffff'; // Color-matched seamless whiteout mask
+        eraserBrush.strokeLineCap = 'round';
+        eraserBrush.strokeLineJoin = 'round';
+        targetCanvas.freeDrawingBrush = eraserBrush;
+      }
+      notifyUser(`🧹 Pinpoint Whiteout Eraser Active (${eraserSize}px radius) - Drag over text to erase cleanly!`);
+    } else {
+      targetCanvas.isDrawingMode = false;
+      targetCanvas.defaultCursor = 'crosshair';
+      notifyUser('🎯 Element Eraser Active - Click any drawn object or text to remove it!');
+    }
+  };
+
+  // Update Brush Size Dynamically for Precision Eraser
+  useEffect(() => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (isEraserActive && targetCanvas && eraserMode === 'precision' && targetCanvas.freeDrawingBrush) {
+      targetCanvas.freeDrawingBrush.width = eraserSize;
+      targetCanvas.freeDrawingBrush.color = '#ffffff';
+    }
+  }, [eraserSize, eraserMode, isEraserActive]);
+
+  // Object / Element Click Eraser Handler
+  useEffect(() => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    const handleObjectClickErase = (e: any) => {
+      if (isEraserActive && eraserMode === 'object') {
+        const clickedObj = e.target;
+        if (clickedObj) {
+          targetCanvas.remove(clickedObj);
+          targetCanvas.discardActiveObject();
+          targetCanvas.renderAll();
+          updateLayersList();
+          saveState(targetCanvas);
+          notifyUser('🧹 Cleanly erased element from canvas!');
+        }
+      }
+    };
+
+    targetCanvas.on('mouse:down', handleObjectClickErase);
+    return () => {
+      targetCanvas.off('mouse:down', handleObjectClickErase);
+    };
+  }, [isEraserActive, eraserMode]);
+
+  // IN-APP NATIVE RECORDING ENGINE
   const handleRequestHardwarePermissionsAndRecord = async (type: 'video' | 'audio') => {
     try {
       notifyUser(`🎥 Requesting ${type} hardware permission...`);
@@ -322,10 +395,6 @@ function CanvasStudio() {
       setIsNativeRecording(false);
 
       setTimeout(() => {
-        const mimeType = nativeRecordingType === 'video' ? 'video/webm' : 'audio/webm';
-        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-        const mediaUrl = URL.createObjectURL(blob);
-
         const ITextClass = getFabricClass('IText');
         const targetCanvas = fabricCanvasRef.current || fabricCanvas;
         if (ITextClass && targetCanvas) {
@@ -350,7 +419,7 @@ function CanvasStudio() {
     }
   };
 
-  // --- 2. REAL-TIME LIVE STREAMING TRANSCRIBER ENGINE ---
+  // REAL-TIME LIVE SPEECH STREAMER
   const handleToggleLiveStreamingSpeech = () => {
     if (isLiveStreamingSpeech) {
       if (speechRecognitionRef.current) {
@@ -405,10 +474,6 @@ function CanvasStudio() {
             saveState(targetCanvas);
           }
         }
-      };
-
-      recognition.onerror = (e: any) => {
-        console.warn('Speech stream note:', e);
       };
 
       recognition.start();
@@ -1735,7 +1800,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (IN-APP RECORDER & LIVE SPEECH STREAMER BUTTONS) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES PRECISION ERASER BUTTON) */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
@@ -1746,6 +1811,14 @@ function CanvasStudio() {
             title="Convert all printed text on the current PDF page into editable text boxes"
           >
             ✍️ Edit PDF Text
+          </button>
+
+          <button
+            onClick={handleTogglePrecisionEraser}
+            style={{ padding: '5px 12px', backgroundColor: isEraserActive ? '#dc2626' : '#ea580c', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(234, 88, 12, 0.4)', touchAction: 'manipulation' }}
+            title="Clean precision eraser to erase text or items cleanly without smudges"
+          >
+            {isEraserActive ? '🛑 Exit Eraser' : '🧹 Precision Eraser'}
           </button>
 
           <button
@@ -1884,6 +1957,37 @@ function CanvasStudio() {
 
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
+          {/* FLOATING PRECISION ERASER CONTROL TOOLBAR */}
+          {isEraserActive && (
+            <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#0f172a', padding: '8px 16px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #ea580c' }}>
+              <span style={{ color: '#ea580c', fontSize: '12px', fontWeight: 'bold' }}>🧹 Eraser Controls:</span>
+              
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button onClick={() => setEraserMode('precision')} style={{ padding: '4px 10px', backgroundColor: eraserMode === 'precision' ? '#ea580c' : '#1e293b', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  🧹 Pinpoint Mask
+                </button>
+                <button onClick={() => setEraserMode('object')} style={{ padding: '4px 10px', backgroundColor: eraserMode === 'object' ? '#ea580c' : '#1e293b', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  🎯 Object Remove
+                </button>
+              </div>
+
+              {eraserMode === 'precision' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '11px', color: '#cbd5e1' }}>Size:</span>
+                  {[2, 8, 16, 32].map((sz) => (
+                    <button key={sz} onClick={() => setEraserSize(sz)} style={{ padding: '2px 8px', backgroundColor: eraserSize === sz ? '#0284c7' : '#334155', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+                      {sz}px
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={handleTogglePrecisionEraser} style={{ padding: '4px 10px', backgroundColor: '#334155', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ✅ Done Erasing
+              </button>
+            </div>
+          )}
+
           {/* FLOATING ACTION OVERLAY FOR IN-APP NATIVE RECORDING */}
           {isNativeRecording && (
             <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: '#0f172a', padding: '12px 20px', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '2px solid #ef4444' }}>
