@@ -6,6 +6,8 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import axios from 'axios';
+import http from 'http';
+import { Server } from 'socket.io';
 
 // Imports referenced from server/ directory
 import imageRoutes from '../routes/image';
@@ -17,6 +19,15 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Wrap Express with HTTP Server for WebRTC & Socket.io Signaling
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
 
 const uploadDir = path.join(__dirname, '../../uploads');
 const outputDir = path.join(__dirname, '../../outputs');
@@ -36,6 +47,65 @@ app.use('/outputs', express.static(outputDir));
 // Sub-Routers (Listen on both /api and root paths for Vercel)
 app.use(['/api/image', '/image'], imageRoutes);
 app.use(['/api/video', '/video'], videoRoutes);
+
+// --- WEBRTC & PRIVATE CHAT SOCKET.IO SIGNALING ENGINE ---
+const userSocketMap = new Map<string, string>(); // userId => socketId
+
+io.on('connection', (socket) => {
+  // 1. Register User Socket
+  socket.on('register-social-user', ({ userId }) => {
+    userSocketMap.set(userId, socket.id);
+  });
+
+  // 2. Private Text Messaging
+  socket.on('send-private-message', ({ targetId, senderId, text, timestamp }) => {
+    const targetSocketId = userSocketMap.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('receive-message', { senderId, text, timestamp });
+    }
+  });
+
+  // 3. WebRTC Call Offer
+  socket.on('call-user', ({ targetId, callerId, callerName, type, offer }) => {
+    const targetSocketId = userSocketMap.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('incoming-call', { callerId, callerName, type, offer });
+    }
+  });
+
+  // 4. WebRTC Call Answer
+  socket.on('answer-call', ({ targetId, answer }) => {
+    const targetSocketId = userSocketMap.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-answered', { answer });
+    }
+  });
+
+  // 5. ICE Candidates Exchange
+  socket.on('send-ice-candidate', ({ targetId, candidate }) => {
+    const targetSocketId = userSocketMap.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('ice-candidate', { candidate });
+    }
+  });
+
+  // 6. End Call
+  socket.on('end-call', ({ targetId }) => {
+    const targetSocketId = userSocketMap.get(targetId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-ended');
+    }
+  });
+
+  socket.on('disconnect', () => {
+    for (const [userId, socketId] of userSocketMap.entries()) {
+      if (socketId === socket.id) {
+        userSocketMap.delete(userId);
+        break;
+      }
+    }
+  });
+});
 
 /**
  * Helper: Resolve Geo-IP / Timezone to Local Currency and Paystack Channels
@@ -265,7 +335,7 @@ app.get(['/api/health', '/health'], (req, res) => {
 export default app;
 
 if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 OmniStudio Canvas API Server running on http://localhost:${PORT}`);
+  server.listen(PORT, () => {
+    console.log(`🚀 OmniStudio Canvas API & WebRTC Socket Server running on http://localhost:${PORT}`);
   });
 }

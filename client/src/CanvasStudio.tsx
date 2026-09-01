@@ -34,6 +34,9 @@ import { MomoCheckoutModal } from './components/toolbar/MomoCheckoutModal';
 // Unlimited Duration Recorder & AI Transcriber Modal Import
 import { UnlimitedStudioRecorderModal } from './components/toolbar/UnlimitedStudioRecorderModal';
 
+// 💬 Real-Time Social Chat & P2P Voice/Video Calls Modal Import
+import { SocialMessengerModal } from './components/social/SocialMessengerModal';
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API_BASE = window.location.hostname === 'localhost'
@@ -150,6 +153,9 @@ function CanvasStudio() {
 
   // Unlimited Duration Audio/Video Recorder State
   const [isUnlimitedRecorderOpen, setIsUnlimitedRecorderOpen] = useState(false);
+
+  // 💬 Real-Time Social Chat & P2P Calls Modal State
+  const [isSocialMessengerOpen, setIsSocialMessengerOpen] = useState(false);
 
   // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -1079,6 +1085,29 @@ function CanvasStudio() {
           </div>
         )}
 
+        {/* 💬 REAL-TIME CHAT & P2P VOICE/VIDEO CALLS TRIGGER BUTTON */}
+        <button
+          onClick={() => setIsSocialMessengerOpen(true)}
+          style={{
+            padding: '4px 12px',
+            backgroundColor: '#8b5cf6',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
+            transition: 'all 0.15s ease'
+          }}
+          title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
+        >
+          💬 Chat & Calls
+        </button>
+
         {/* 🎨 BRAND SWATCHES HEADER TOOL */}
         <BrandPaletteHeader
           fabricCanvas={fabricCanvas}
@@ -1227,6 +1256,13 @@ function CanvasStudio() {
         onClose={() => setIsUnlimitedRecorderOpen(false)}
         onInsertMediaToCanvas={handleInsertMediaAsset}
         onInsertTranscriptToCanvas={handleInsertOcrAsDocNode}
+      />
+
+      {/* 💬 REAL-TIME SOCIAL CHAT & P2P VOICE/VIDEO CALLS MODAL */}
+      <SocialMessengerModal
+        isOpen={isSocialMessengerOpen}
+        onClose={() => setIsSocialMessengerOpen(false)}
+        guestUserId={guestUserId}
       />
 
       {/* 4. WATERMARK ENGINE MODAL */}
