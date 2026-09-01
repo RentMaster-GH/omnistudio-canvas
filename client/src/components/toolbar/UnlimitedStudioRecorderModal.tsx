@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Video, Square, Play, Pause, FileText, Download, Clock, X, Sparkles, Plus } from 'lucide-react';
+import { Mic, Video, Square, Play, Pause, Download, Clock, X, Sparkles, Plus } from 'lucide-react';
 import axios from 'axios';
 
 interface Props {
@@ -35,6 +35,14 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
 
+  // Function declared BEFORE useEffect (Fixes ReferenceError Hoisting Bug)
+  const stopStreamTracks = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
+
   useEffect(() => {
     return () => {
       stopStreamTracks();
@@ -43,13 +51,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
   }, []);
 
   if (!isOpen) return null;
-
-  const stopStreamTracks = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-  };
 
   const formatTimer = (totalSec: number) => {
     const hours = Math.floor(totalSec / 3600);
@@ -69,18 +70,14 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
       let stream: MediaStream;
 
       if (recordMode === 'video') {
-        // Capture Screen/Camera + Audio Stream
         const videoStream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30, max: 60 } },
           audio: true,
         });
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        // Combine video and audio tracks
         const tracks = [...videoStream.getVideoTracks(), ...audioStream.getAudioTracks()];
         stream = new MediaStream(tracks);
       } else {
-        // Capture Audio Only Stream
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true },
         });
@@ -93,7 +90,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
         videoPreviewRef.current.play();
       }
 
-      // Initialize MediaRecorder with 1-second dynamic chunking (Supports Hours of Recording)
       const mimeType = recordMode === 'video' ? 'video/webm;codecs=vp9,opus' : 'audio/webm;codecs=opus';
       const options = MediaRecorder.isTypeSupported(mimeType) ? { mimeType } : undefined;
 
@@ -115,7 +111,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
         stopStreamTracks();
       };
 
-      // Push chunk every 1 second (1000ms) to ensure memory stability
       mediaRecorder.start(1000);
       mediaRecorderRef.current = mediaRecorder;
 
@@ -156,7 +151,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
     }
   };
 
-  // --- UNLIMITED TRANSCRIPTION ENGINE ---
   const handleTranscribeRecordedMedia = async () => {
     if (!recordedBlob) {
       alert('Please record an audio or video session first!');
@@ -231,7 +225,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
         boxShadow: '0 25px 50px -12px rgba(0,0,0,0.6)',
         position: 'relative'
       }}>
-        {/* Close Button */}
         <button
           onClick={() => { stopStreamTracks(); onClose(); }}
           style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
@@ -239,7 +232,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
           <X style={{ width: '20px', height: '20px' }} />
         </button>
 
-        {/* Modal Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(2, 132, 199, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #0284c7' }}>
             <Video style={{ width: '22px', height: '22px', color: '#38bdf8' }} />
@@ -250,7 +242,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Mode Selector Tabs (Audio vs Video) */}
         {!isRecording && (
           <div style={{ display: 'flex', backgroundColor: '#0f172a', padding: '4px', borderRadius: '8px', border: '1px solid #334155', marginBottom: '20px' }}>
             <button
@@ -296,7 +287,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Video Preview Box */}
         {recordMode === 'video' && (
           <div style={{ width: '100%', height: '220px', backgroundColor: '#0f172a', borderRadius: '10px', overflow: 'hidden', border: '1px solid #334155', marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {mediaUrl ? (
@@ -307,7 +297,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Live Recording Clock & Controls */}
         <div style={{ backgroundColor: '#0f172a', padding: '16px', borderRadius: '10px', border: '1px solid #334155', marginBottom: '20px', textAlign: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '12px' }}>
             <Clock style={{ width: '18px', height: '18px', color: isRecording ? '#ef4444' : '#94a3b8' }} />
@@ -347,7 +336,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Post-Recording Action Toolbar (Transcribe / Canvas / Download) */}
         {recordedBlob && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -382,7 +370,6 @@ export const UnlimitedStudioRecorderModal: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* Extracted Transcript Display */}
             {extractedTranscript && (
               <div style={{ backgroundColor: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155', maxHeight: '120px', overflowY: 'auto' }}>
                 <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#38bdf8', display: 'block', marginBottom: '4px' }}>

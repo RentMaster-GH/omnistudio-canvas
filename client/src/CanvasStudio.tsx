@@ -1000,8 +1000,8 @@ function CanvasStudio() {
         setDarkMode={setDarkMode}
       />
 
-      {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR & PAYWALL HEADER STATUS */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px' }}>
+      {/* 2. SECONDARY TOOL RIBBON (TIER 2 - COMPACT NON-OVERLAPPING RIBBON) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, overflowX: 'auto', whiteSpace: 'nowrap' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
           handleUndo={handleUndo}
@@ -1036,86 +1036,118 @@ function CanvasStudio() {
           bgBar={bgBar}
           borderCol={borderCol}
         />
+      </div>
 
-        {/* STATUS BADGE: APP MANAGER vs PAID USER vs COUNTDOWN TIMER */}
-        {isAppManager ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-            <span>👑 App Manager - Free Access</span>
-          </div>
-        ) : isProUnlocked ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-            <span>🎉 Lifetime Access Unlocked</span>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (TIER 3 - NON-OVERLAPPING RESPONSIVE HEADER BAR) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px' }}>
+        
+        {/* LEFT: QUICK LAUNCHERS (RECORDER & SOCIAL CHAT) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <button
+            onClick={() => setIsUnlimitedRecorderOpen(true)}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#0284c7',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              backgroundColor: freeTimeRemainingSec < 300 ? 'rgba(239, 68, 68, 0.2)' : '#0f172a',
-              padding: '4px 10px',
+              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
+              transition: 'all 0.15s ease'
+            }}
+            title="Record Unlimited Audio or Video and Transcribe to Text"
+          >
+            🎥 Record & Transcribe
+          </button>
+
+          <button
+            onClick={() => setIsSocialMessengerOpen(true)}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#8b5cf6',
+              color: '#ffffff',
+              border: 'none',
               borderRadius: '6px',
-              border: freeTimeRemainingSec < 300 ? '1px solid #ef4444' : '1px solid #334155',
               fontSize: '11px',
               fontWeight: 'bold',
-              color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
-            }}>
-              <span>⏱️ Free Access:</span>
-              <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
-            </div>
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
+              transition: 'all 0.15s ease'
+            }}
+            title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
+          >
+            💬 Chat & Calls
+          </button>
+        </div>
 
-            <button
-              onClick={handlePaystackUpgrade}
-              style={{
-                padding: '4px 12px',
-                backgroundColor: '#0284c7',
-                color: '#ffffff',
-                border: 'none',
+        {/* CENTER: PAYWALL STATUS / TIMER / APP MANAGER BADGE */}
+        <div style={{ flexShrink: 0 }}>
+          {isAppManager ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+              <span>👑 App Manager - Free Access</span>
+            </div>
+          ) : isProUnlocked ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+              <span>🎉 Lifetime Access Unlocked</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                backgroundColor: freeTimeRemainingSec < 300 ? 'rgba(239, 68, 68, 0.2)' : '#0f172a',
+                padding: '4px 10px',
                 borderRadius: '6px',
+                border: freeTimeRemainingSec < 300 ? '1px solid #ef4444' : '1px solid #334155',
                 fontSize: '11px',
                 fontWeight: 'bold',
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
-                transition: 'all 0.15s ease'
-              }}
-              title="Pay 50 GHS upfront to unlock permanent access"
-            >
-              ⚡ Unlock Lifetime Access
-            </button>
-          </div>
-        )}
+                color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
+              }}>
+                <span>⏱️ Free Access:</span>
+                <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
+              </div>
 
-        {/* 💬 REAL-TIME CHAT & P2P VOICE/VIDEO CALLS TRIGGER BUTTON */}
-        <button
-          onClick={() => setIsSocialMessengerOpen(true)}
-          style={{
-            padding: '4px 12px',
-            backgroundColor: '#8b5cf6',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '11px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
-            transition: 'all 0.15s ease'
-          }}
-          title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
-        >
-          💬 Chat & Calls
-        </button>
+              <button
+                onClick={handlePaystackUpgrade}
+                style={{
+                  padding: '4px 12px',
+                  backgroundColor: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Pay 50 GHS upfront to unlock permanent access"
+              >
+                ⚡ Unlock Lifetime Access
+              </button>
+            </div>
+          )}
+        </div>
 
-        {/* 🎨 BRAND SWATCHES HEADER TOOL */}
-        <BrandPaletteHeader
-          fabricCanvas={fabricCanvas}
-          onColorSelect={handleSelectBrandColor}
-        />
+        {/* RIGHT: BRAND PALETTE SWATCHES */}
+        <div style={{ flexShrink: 0 }}>
+          <BrandPaletteHeader
+            fabricCanvas={fabricCanvas}
+            onColorSelect={handleSelectBrandColor}
+          />
+        </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE */}
+      {/* 4. MAIN WORKSPACE */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* PDF Sidebar Navigator */}
         <PageNavigator 
@@ -1265,7 +1297,7 @@ function CanvasStudio() {
         guestUserId={guestUserId}
       />
 
-      {/* 4. WATERMARK ENGINE MODAL */}
+      {/* 5. WATERMARK ENGINE MODAL */}
       <WatermarkModal
         isOpen={isWatermarkModalOpen}
         onClose={() => setIsWatermarkModalOpen(false)}
@@ -1276,7 +1308,7 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 5. OTHER STUDIO MODALS */}
+      {/* 6. OTHER STUDIO MODALS */}
       <SignatureModal 
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}

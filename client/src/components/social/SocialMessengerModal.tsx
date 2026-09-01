@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Phone, Video, MessageSquare, UserPlus, PhoneOff, Mic, MicOff, VideoOff, Send, Users, X, ShieldCheck } from 'lucide-react';
+import { Phone, Video, MessageSquare, UserPlus, PhoneOff, Mic, MicOff, VideoOff, Send, Users, X } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
 interface Props {
@@ -29,20 +29,27 @@ const ICE_SERVERS = {
   ],
 };
 
+const DEFAULT_FRIENDS: Friend[] = [
+  { id: 'demo_peer_1', name: 'Alex Architect', status: 'online' },
+  { id: 'demo_peer_2', name: 'Sarah Engineer', status: 'online' },
+];
+
 export const SocialMessengerModal: React.FC<Props> = ({
   isOpen,
   onClose,
   guestUserId,
 }) => {
   const [friends, setFriends] = useState<Friend[]>(() => {
-    const saved = localStorage.getItem('omni_friends_list');
-    return saved ? JSON.parse(saved) : [
-      { id: 'demo_peer_1', name: 'Alex Architect', status: 'online' },
-      { id: 'demo_peer_2', name: 'Sarah Engineer', status: 'online' },
-    ];
+    try {
+      const saved = localStorage.getItem('omni_friends_list');
+      const parsed = saved ? JSON.parse(saved) : null;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch (e) {}
+    return DEFAULT_FRIENDS;
   });
 
-  const [activeFriend, setActiveFriend] = useState<Friend | null>(friends[0] || null);
+  // Fix: Use DEFAULT_FRIENDS[0] directly (Prevents ReferenceError on initialization)
+  const [activeFriend, setActiveFriend] = useState<Friend | null>(DEFAULT_FRIENDS[0]);
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [chatInput, setChatInput] = useState('');
   const [newFriendIdInput, setNewFriendIdInput] = useState('');
@@ -70,13 +77,14 @@ export const SocialMessengerModal: React.FC<Props> = ({
 
   // Socket & Signaling Initialization
   useEffect(() => {
+    if (!isOpen) return;
+
     const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : window.location.origin;
     const socket = io(socketUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     socket.emit('register-social-user', { userId: guestUserId });
 
-    // Handle Incoming Message
     socket.on('receive-message', ({ senderId, text, timestamp }) => {
       setMessages((prev) => ({
         ...prev,
@@ -84,7 +92,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
       }));
     });
 
-    // Handle Incoming Call Offer
     socket.on('incoming-call', ({ callerId, callerName, type, offer }) => {
       setCallerInfo({ id: callerId, name: callerName });
       setCallType(type);
@@ -92,7 +99,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
       setCallState('incoming');
     });
 
-    // Handle Call Answer
     socket.on('call-answered', async ({ answer }) => {
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
@@ -100,7 +106,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
       }
     });
 
-    // Handle ICE Candidates
     socket.on('ice-candidate', async ({ candidate }) => {
       if (peerConnectionRef.current && candidate) {
         try {
@@ -111,7 +116,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
       }
     });
 
-    // Handle End Call
     socket.on('call-ended', () => {
       endCallCleanup();
     });
@@ -119,11 +123,10 @@ export const SocialMessengerModal: React.FC<Props> = ({
     return () => {
       socket.disconnect();
     };
-  }, [guestUserId]);
+  }, [guestUserId, isOpen]);
 
   if (!isOpen) return null;
 
-  // --- WEBRTC CALL HANDLERS ---
   const initializePeerConnection = () => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
@@ -262,7 +265,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
     }
   };
 
-  // --- CHAT HANDLERS ---
   const handleSendMessage = () => {
     if (!chatInput.trim() || !activeFriend) return;
 
@@ -301,7 +303,7 @@ export const SocialMessengerModal: React.FC<Props> = ({
     setNewFriendIdInput('');
   };
 
-  const activeFriendMessages = activeFriend ? messages[activeFriend.id] || [] : [];
+  const activeFriendMessages = (activeFriend && activeFriend.id) ? (messages[activeFriend.id] || []) : [];
 
   return (
     <div style={{
@@ -347,7 +349,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           {/* Left Sidebar: Friends List */}
           <div style={{ width: '260px', backgroundColor: '#0f172a', borderRight: '1px solid #334155', display: 'flex', flexDirection: 'column' }}>
-            {/* Add Friend Input */}
             <form onSubmit={handleAddFriend} style={{ padding: '12px', borderBottom: '1px solid #334155', display: 'flex', gap: '6px' }}>
               <input
                 type="text"
@@ -361,7 +362,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
               </button>
             </form>
 
-            {/* Friends List */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
               <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', padding: '4px 8px', display: 'block', textTransform: 'uppercase' }}>Friends ({friends.length})</span>
               {friends.map((f) => (
@@ -390,7 +390,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
 
           {/* Right Main Stage: Active Call Stage or Chat Window */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#1e293b', position: 'relative' }}>
-            {/* Active Call Video Stage Overlay */}
             {callState === 'connected' || callState === 'calling' ? (
               <div style={{ flex: 1, backgroundColor: '#0f172a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                 {callType === 'video' ? (
@@ -406,7 +405,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
                   </div>
                 )}
 
-                {/* Call Controls Bar */}
                 <div style={{ position: 'absolute', bottom: '20px', display: 'flex', gap: '12px', backgroundColor: 'rgba(15, 23, 42, 0.85)', padding: '10px 20px', borderRadius: '30px', backdropFilter: 'blur(6px)' }}>
                   <button onClick={toggleMic} style={{ padding: '10px', borderRadius: '50%', backgroundColor: isMicMuted ? '#ef4444' : '#334155', color: '#fff', border: 'none', cursor: 'pointer' }}>
                     {isMicMuted ? <MicOff style={{ width: '18px', height: '18px' }} /> : <Mic style={{ width: '18px', height: '18px' }} />}
@@ -423,7 +421,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
               </div>
             ) : activeFriend ? (
               <>
-                {/* Active Chat Header with Call Buttons */}
                 <div style={{ padding: '12px 16px', backgroundColor: '#0f172a', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '14px', fontWeight: 'bold' }}>{activeFriend.name}</span>
@@ -440,7 +437,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Messages Stream */}
                 <div style={{ flex: 1, padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {activeFriendMessages.map((m, idx) => (
                     <div key={idx} style={{ alignSelf: m.senderId === guestUserId ? 'flex-end' : 'flex-start', maxWidth: '70%' }}>
@@ -452,7 +448,6 @@ export const SocialMessengerModal: React.FC<Props> = ({
                   ))}
                 </div>
 
-                {/* Chat Input Bar */}
                 <div style={{ padding: '12px', backgroundColor: '#0f172a', borderTop: '1px solid #334155', display: 'flex', gap: '8px' }}>
                   <input
                     type="text"
@@ -467,7 +462,11 @@ export const SocialMessengerModal: React.FC<Props> = ({
                   </button>
                 </div>
               </>
-            ) : null}
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '13px' }}>
+                Select a friend from the left sidebar to start chatting or calling.
+              </div>
+            )}
           </div>
         </div>
 
