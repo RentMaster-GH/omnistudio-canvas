@@ -1,4 +1,4 @@
-mport React, { useEffect, useRef, useState, Component } from 'react';
+import React, { useEffect, useRef, useState, Component } from 'react';
 import * as fabric from 'fabric';
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
