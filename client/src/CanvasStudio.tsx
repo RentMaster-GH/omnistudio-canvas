@@ -57,7 +57,7 @@ const ensureValidHexColor = (color?: string | null, fallbackHex = '#0f172a'): st
 // --- UNIVERSAL FABRIC CONSTRUCTOR RESOLVERS ---
 const getFabricCanvas = (): any => (fabric as any).Canvas || ((fabric as any).default && (fabric as any).default.Canvas);
 const getFabricIText = (): any => (fabric as any).IText || (fabric as any).Textbox || ((fabric as any).default && (fabric as any).default.IText) || ((fabric as any).default && (fabric as any).default.Textbox);
-const getFabricImage = (): any => (fabric as any).FabricImage || (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
+const getFabricImage = (): any => (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image) || (fabric as any).FabricImage;
 const getFabricPencilBrush = (): any => (fabric as any).PencilBrush || ((fabric as any).default && (fabric as any).default.PencilBrush);
 
 // --- REACT ERROR BOUNDARY ---
@@ -245,12 +245,10 @@ function CanvasStudio() {
     }
   };
 
-  // --- DUMMY HANDLER FIXES IMPLEMENTED ---
   const handleLoadSampleDemo = () => {
     if (!fabricCanvas) return;
     fabricCanvas.clear();
     
-    // Create Sample Canvas Document
     const ITextClass = getFabricIText();
     if (ITextClass) {
       const title = new ITextClass('🎨 Welcome to OmniStudio Canvas!', {
@@ -314,7 +312,124 @@ function CanvasStudio() {
     notifyUser('⬛ Redaction blackout shield added to canvas!');
   };
 
-  // --- PDF EDITING ENGINE ---
+  // --- PDF EDITING & VIEWPORT RENDER ENGINE ---
+  const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
+    if (!pdf || !fabricCanvas) {
+      console.warn('Cannot render PDF: pdf or fabricCanvas is null');
+      return;
+    }
+
+    notifyUser(`📄 Rendering PDF Page ${pageNumber} of ${pdf.numPages}...`);
+
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const highDpiScale = 2.0;
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+
+      const stageW = canvasWidth || 1050;
+      const stageH = canvasHeight || 650;
+
+      fabricCanvas.setDimensions({ width: stageW, height: stageH });
+
+      const scaleX = (stageW - 24) / unscaledViewport.width;
+      const scaleY = (stageH - 24) / unscaledViewport.height;
+      const computedScale = Math.min(scaleX, scaleY);
+
+      const viewport = page.getViewport({ scale: computedScale * highDpiScale });
+
+      const tempCanvas = document.createElement('canvas');
+      const context = tempCanvas.getContext('2d');
+      if (!context) return;
+
+      tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
+
+      await page.render({ canvasContext: context, viewport }).promise;
+      const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
+
+      const ImageClass = getFabricImage();
+      if (ImageClass && ImageClass.fromURL) {
+        ImageClass.fromURL(imgDataUrl, (fabricImg: any) => {
+          if (!fabricImg || !fabricCanvas) return;
+
+          const scaledW = tempCanvas.width / highDpiScale;
+          const scaledH = tempCanvas.height / highDpiScale;
+
+          fabricImg.set({
+            scaleX: 1 / highDpiScale,
+            scaleY: 1 / highDpiScale,
+            left: (stageW - scaledW) / 2,
+            top: (stageH - scaledH) / 2,
+            selectable: false,
+            evented: false,
+          });
+
+          fabricCanvas.clear();
+          fabricCanvas.add(fabricImg);
+          fabricCanvas.sendToBack(fabricImg);
+          fabricCanvas.renderAll();
+          saveState(fabricCanvas);
+          notifyUser(`📄 Loaded PDF Page ${pageNumber} into Viewport Stage!`);
+        });
+      }
+    } catch (err: any) {
+      console.error('Error rendering PDF page onto canvas:', err);
+      notifyUser(`Error rendering PDF: ${err.message}`);
+    }
+  };
+
+  const generateThumbnails = async (pdf: any) => {
+    const thumbs: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      try {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 0.2 });
+        const tempCanvas = document.createElement('canvas');
+        const context = tempCanvas.getContext('2d');
+        if (context) {
+          tempCanvas.height = viewport.height;
+          tempCanvas.width = viewport.width;
+          await page.render({ canvasContext: context, viewport }).promise;
+          thumbs.push(tempCanvas.toDataURL('image/png'));
+        }
+      } catch (e) {
+        console.warn('Thumbnail render error:', e);
+      }
+    }
+    setThumbnails(thumbs);
+  };
+
+  // --- FIXED CONCURRENCY PDF UPLOAD ENGINE ---
+  const handlePdfDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    notifyUser('📄 Loading PDF into Canvas Studio...');
+    try {
+      const fileArrayBuffer = await file.arrayBuffer();
+      const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
+      setPdfDoc(loadedPdf);
+      setTotalPages(loadedPdf.numPages);
+      setPageNum(1);
+
+      // STEP 1: Render Page 1 to Viewport Stage FIRST (Prevents PDF.js Concurrent Render Collision)
+      await renderPdfPageOntoCanvas(loadedPdf, 1);
+
+      // STEP 2: Generate Sidebar Thumbnails AFTER main viewport render finishes
+      generateThumbnails(loadedPdf);
+    } catch (err: any) {
+      console.error('PDF Upload Error:', err);
+      alert(`Could not load PDF document: ${err.message}`);
+      notifyUser(`Error loading PDF: ${err.message}`);
+    }
+  };
+
+  const changePdfPage = async (newPage: number) => {
+    if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
+    setPageNum(newPage);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage);
+  };
+
   const handleExtractAndEditPdfText = async () => {
     if (!pdfDoc || !fabricCanvas) {
       alert('Please upload a PDF document first using the "Upload PDF" button in the ribbon!');
@@ -473,11 +588,12 @@ function CanvasStudio() {
           const viewport = page.getViewport({ scale: 0.2 });
           const tempCanvas = document.createElement('canvas');
           const context = tempCanvas.getContext('2d');
-          tempCanvas.height = viewport.height;
-          tempCanvas.width = viewport.width;
-
-          await page.render({ canvasContext: context, viewport }).promise;
-          allThumbs.push(tempCanvas.toDataURL('image/png'));
+          if (context) {
+            tempCanvas.height = viewport.height;
+            tempCanvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport }).promise;
+            allThumbs.push(tempCanvas.toDataURL('image/png'));
+          }
         }
       } catch (err) {
         console.error('Error merging PDF file:', err);
@@ -490,7 +606,6 @@ function CanvasStudio() {
     notifyUser(`✅ Merged ${files.length} PDFs into unified ${allThumbs.length}-page document!`);
   };
 
-  // --- ALIGNMENT WITH FALLBACK NOTIFICATIONS ---
   const handleAlignLeft = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
@@ -996,117 +1111,6 @@ function CanvasStudio() {
     if (!fabricCanvas) return;
     setActiveTool(mode);
     fabricCanvas.isDrawingMode = mode === 'draw';
-  };
-
-  const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
-    if (!pdf || !fabricCanvas) return;
-
-    try {
-      const page = await pdf.getPage(pageNumber);
-      const highDpiScale = 2.0;
-      const unscaledViewport = page.getViewport({ scale: 1.0 });
-
-      const stageW = canvasWidth || 1050;
-      const stageH = canvasHeight || 650;
-
-      fabricCanvas.setDimensions({ width: stageW, height: stageH });
-
-      const scaleX = (stageW - 24) / unscaledViewport.width;
-      const scaleY = (stageH - 24) / unscaledViewport.height;
-      const computedScale = Math.min(scaleX, scaleY);
-
-      const viewport = page.getViewport({ scale: computedScale * highDpiScale });
-
-      const tempCanvas = document.createElement('canvas');
-      const context = tempCanvas.getContext('2d');
-      tempCanvas.height = viewport.height;
-      tempCanvas.width = viewport.width;
-
-      await page.render({ canvasContext: context, viewport }).promise;
-
-      const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
-
-      const htmlImg = new Image();
-      htmlImg.onload = () => {
-        if (!fabricCanvas) return;
-
-        const ImageConstructor = (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
-        const fabricImg = new ImageConstructor(htmlImg);
-
-        const scaledW = htmlImg.width / highDpiScale;
-        const scaledH = htmlImg.height / highDpiScale;
-
-        fabricImg.set({
-          scaleX: 1 / highDpiScale,
-          scaleY: 1 / highDpiScale,
-          left: (stageW - scaledW) / 2,
-          top: (stageH - scaledH) / 2,
-          selectable: false,
-          evented: false,
-        });
-
-        fabricCanvas.clear();
-        fabricCanvas.add(fabricImg);
-        fabricCanvas.sendObjectToBack(fabricImg);
-        activateToolMode('hand');
-        fabricCanvas.renderAll();
-        saveState(fabricCanvas);
-        notifyUser(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages}`);
-      };
-      htmlImg.src = imgDataUrl;
-
-    } catch (err: any) {
-      console.error('Error rendering PDF page onto canvas:', err);
-      notifyUser(`Error rendering PDF: ${err.message}`);
-    }
-  };
-
-  const generateThumbnails = async (pdf: any) => {
-    const thumbs: string[] = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      try {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 0.2 });
-        const tempCanvas = document.createElement('canvas');
-        const context = tempCanvas.getContext('2d');
-        tempCanvas.height = viewport.height;
-        tempCanvas.width = viewport.width;
-
-        await page.render({ canvasContext: context, viewport }).promise;
-        thumbs.push(tempCanvas.toDataURL('image/png'));
-      } catch (e) {
-        console.warn('Thumbnail render error:', e);
-      }
-    }
-    setThumbnails(thumbs);
-  };
-
-  const handlePdfDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    notifyUser('📄 Loading PDF into Canvas Studio...');
-    try {
-      const fileArrayBuffer = await file.arrayBuffer();
-      const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
-      setPdfDoc(loadedPdf);
-      setTotalPages(loadedPdf.numPages);
-      setPageNum(1);
-
-      generateThumbnails(loadedPdf);
-      await renderPdfPageOntoCanvas(loadedPdf, 1);
-      notifyUser(`✅ PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
-    } catch (err: any) {
-      console.error('PDF Upload Error:', err);
-      alert(`Could not load PDF document: ${err.message}`);
-      notifyUser(`Error loading PDF: ${err.message}`);
-    }
-  };
-
-  const changePdfPage = async (newPage: number) => {
-    if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
-    setPageNum(newPage);
-    await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
   const exportCanvasImage = () => {
