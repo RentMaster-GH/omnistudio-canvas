@@ -642,9 +642,10 @@ function CanvasStudio() {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) return;
 
+    // Upgraded default stage size to 1050px x 650px for spacious workspace
     const canvas = new CanvasClass(canvasRef.current, {
-      width: 820,
-      height: 480,
+      width: 1050,
+      height: 650,
       backgroundColor: '#ffffff',
       defaultCursor: 'grab',
       renderOnAddRemove: true,
@@ -702,13 +703,13 @@ function CanvasStudio() {
   const applyCanvasPresetRatio = (preset: string) => {
     if (!fabricCanvas) return;
 
-    let width = 820;
-    let height = 480;
+    let width = 1050;
+    let height = 650;
 
-    if (preset === '16:9') { width = 854; height = 480; }
-    else if (preset === '9:16') { width = 360; height = 640; }
-    else if (preset === '1:1') { width = 500; height = 500; }
-    else if (preset === 'A4') { width = 595; height = 842; }
+    if (preset === '16:9') { width = 1120; height = 630; }       // HD 16:9 Widescreen
+    else if (preset === '9:16') { width = 450; height = 800; }   // Mobile Vertical
+    else if (preset === '1:1') { width = 700; height = 700; }    // Square Format
+    else if (preset === 'A4') { width = 794; height = 1123; }   // True High-Res A4 Ratio
 
     fabricCanvas.setDimensions({ width, height });
     fabricCanvas.renderAll();
