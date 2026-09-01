@@ -113,6 +113,10 @@ function CanvasStudio() {
   const [, setRecentProjects] = useState<any[]>([]);
   const [, setShowProjectsModal] = useState(false);
 
+  // STEP 1: Manual Canvas Stage Resizing State (Default 1050x650)
+  const [canvasWidth, setCanvasWidth] = useState(1050);
+  const [canvasHeight, setCanvasHeight] = useState(650);
+
   // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
@@ -171,6 +175,20 @@ function CanvasStudio() {
 
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
+
+  // STEP 1 CONT: Manual Canvas Resize Handler
+  const handleResizeCanvas = (newWidth: number, newHeight: number) => {
+    const w = Math.max(320, Math.min(3000, Math.round(newWidth)));
+    const h = Math.max(320, Math.min(3000, Math.round(newHeight)));
+    setCanvasWidth(w);
+    setCanvasHeight(h);
+
+    if (fabricCanvas) {
+      fabricCanvas.setDimensions({ width: w, height: h });
+      fabricCanvas.renderAll();
+      saveState();
+    }
+  };
 
   const togglePlayPause = () => {
     setIsPlaying(!isPlaying);
@@ -642,10 +660,10 @@ function CanvasStudio() {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) return;
 
-    // Upgraded default stage size to 1050px x 650px for spacious workspace
+    // STEP 1 CONT: Synchronized state initialized stage size (1050px x 650px)
     const canvas = new CanvasClass(canvasRef.current, {
-      width: 1050,
-      height: 650,
+      width: canvasWidth,
+      height: canvasHeight,
       backgroundColor: '#ffffff',
       defaultCursor: 'grab',
       renderOnAddRemove: true,
@@ -700,6 +718,7 @@ function CanvasStudio() {
     };
   }, [fabricCanvas]);
 
+  // STEP 1 CONT: Updated preset ratios to sync state handler
   const applyCanvasPresetRatio = (preset: string) => {
     if (!fabricCanvas) return;
 
@@ -711,9 +730,7 @@ function CanvasStudio() {
     else if (preset === '1:1') { width = 700; height = 700; }    // Square Format
     else if (preset === 'A4') { width = 794; height = 1123; }   // True High-Res A4 Ratio
 
-    fabricCanvas.setDimensions({ width, height });
-    fabricCanvas.renderAll();
-    saveState();
+    handleResizeCanvas(width, height);
   };
 
   // --- PAYSTACK INLINE POPUP CHECKOUT (ZERO BACKEND DEPENDENCY) ---
@@ -1000,24 +1017,87 @@ function CanvasStudio() {
           borderCol={borderCol}
         />
 
-        {/* Center Canvas Viewport with Precision Ruler Overlay */}
+        {/* STEP 2: Center Canvas Viewport with Precision Ruler Overlay & Manual Resizer UI */}
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative' }}>
           
-          {/* 📏 PRECISION RULER CONTROL BAR */}
-          <PrecisionRuler
-            fabricCanvas={fabricCanvas}
-            enabled={isRulerActive}
-            onToggle={setIsRulerActive}
-          />
+          {/* 📏 PRECISION RULER & MANUAL DIMENSION CONTROL BAR */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <PrecisionRuler
+              fabricCanvas={fabricCanvas}
+              enabled={isRulerActive}
+              onToggle={setIsRulerActive}
+            />
 
-          <CanvasViewport 
-            canvasRef={canvasRef}
-            activeEditingObject={activeEditingObject}
-            exitTextEditing={exitTextEditing}
-            borderCol={borderCol}
-            fabricCanvas={fabricCanvas}
-            saveState={saveState}
-          />
+            {/* MANUAL W x H INPUT CONTROLS */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px', color: '#94a3b8' }}>
+              <span>Stage:</span>
+              <input
+                type="number"
+                value={canvasWidth}
+                onChange={(e) => handleResizeCanvas(Number(e.target.value), canvasHeight)}
+                style={{ width: '55px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff', padding: '2px 4px', borderRadius: '4px', textAlign: 'center', fontFamily: 'monospace' }}
+              />
+              <span>×</span>
+              <input
+                type="number"
+                value={canvasHeight}
+                onChange={(e) => handleResizeCanvas(canvasWidth, Number(e.target.value))}
+                style={{ width: '55px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff', padding: '2px 4px', borderRadius: '4px', textAlign: 'center', fontFamily: 'monospace' }}
+              />
+              <span>px</span>
+            </div>
+          </div>
+
+          {/* CANVAS STAGE CONTAINER WITH INTERACTIVE CORNER RESIZE HANDLE */}
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <CanvasViewport 
+              canvasRef={canvasRef}
+              activeEditingObject={activeEditingObject}
+              exitTextEditing={exitTextEditing}
+              borderCol={borderCol}
+              fabricCanvas={fabricCanvas}
+              saveState={saveState}
+            />
+
+            {/* BLUE CORNER DRAG HANDLE TO MANUALLY RESIZE CANVAS STAGE */}
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startX = e.clientX;
+                const startY = e.clientY;
+                const startW = canvasWidth;
+                const startH = canvasHeight;
+
+                const onMouseMove = (moveEvent: MouseEvent) => {
+                  const deltaX = moveEvent.clientX - startX;
+                  const deltaY = moveEvent.clientY - startY;
+                  handleResizeCanvas(startW + deltaX, startH + deltaY);
+                };
+
+                const onMouseUp = () => {
+                  window.removeEventListener('mousemove', onMouseMove);
+                  window.removeEventListener('mouseup', onMouseUp);
+                };
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+              }}
+              style={{
+                position: 'absolute',
+                bottom: '-8px',
+                right: '-8px',
+                width: '16px',
+                height: '16px',
+                backgroundColor: '#0284c7',
+                border: '2px solid #ffffff',
+                borderRadius: '50%',
+                cursor: 'nwse-resize',
+                zIndex: 40,
+                boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+              }}
+              title="Click and drag to manually resize canvas screen"
+            />
+          </div>
         </div>
 
         {/* Right Layers & Property Inspector Panels */}
