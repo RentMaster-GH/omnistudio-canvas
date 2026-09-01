@@ -504,13 +504,17 @@ function CanvasStudio() {
     if (type === 'image') {
       const ImageClass = getFabricImage();
       if (ImageClass) {
-        const imgObj = await ImageClass.fromURL(contentUrlOrText);
-        imgObj.scaleToWidth(120);
-        imgObj.set({ left: 250, top: 180 });
-        fabricCanvas.add(imgObj);
-        fabricCanvas.setActiveObject(imgObj);
-        fabricCanvas.renderAll();
-        saveState();
+        if (ImageClass.fromURL.length >= 2) {
+          ImageClass.fromURL(contentUrlOrText, (imgObj: any) => {
+            if (!imgObj) return;
+            imgObj.scaleToWidth(180);
+            imgObj.set({ left: 250, top: 180 });
+            fabricCanvas.add(imgObj);
+            fabricCanvas.setActiveObject(imgObj);
+            fabricCanvas.renderAll();
+            saveState();
+          });
+        }
       }
     } else if (type === 'template') {
       const ITextClass = getFabricIText();
@@ -714,14 +718,16 @@ function CanvasStudio() {
   const handleSaveSignature = async (dataUrl: string) => {
     if (!fabricCanvas) return;
     const ImageClass = getFabricImage();
-    if (ImageClass) {
-      const imgObj = await ImageClass.fromURL(dataUrl);
-      imgObj.scaleToWidth(180);
-      imgObj.set({ left: 300, top: 200 });
-      fabricCanvas.add(imgObj);
-      fabricCanvas.setActiveObject(imgObj);
-      fabricCanvas.renderAll();
-      saveState();
+    if (ImageClass && ImageClass.fromURL) {
+      ImageClass.fromURL(dataUrl, (imgObj: any) => {
+        if (!imgObj) return;
+        imgObj.scaleToWidth(180);
+        imgObj.set({ left: 300, top: 200 });
+        fabricCanvas.add(imgObj);
+        fabricCanvas.setActiveObject(imgObj);
+        fabricCanvas.renderAll();
+        saveState();
+      });
     }
   };
 
@@ -887,65 +893,107 @@ function CanvasStudio() {
     fabricCanvas.isDrawingMode = mode === 'draw';
   };
 
-  const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number, mode = fitMode) => {
+  // --- FABRIC.JS V5.3.0 COMPATIBLE PDF PAGE RENDER PIPELINE ---
+  const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf || !fabricCanvas) return;
 
-    const page = await pdf.getPage(pageNumber);
-    const highDpiScale = 2.0;
-    const unscaledViewport = page.getViewport({ scale: 1.0 });
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const highDpiScale = 2.0;
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
 
-    const canvasWidth = 820;
-    const canvasHeight = 480;
+      const stageW = canvasWidth || 1050;
+      const stageH = canvasHeight || 650;
 
-    fabricCanvas.setDimensions({ width: canvasWidth, height: canvasHeight });
+      fabricCanvas.setDimensions({ width: stageW, height: stageH });
 
-    let computedScale = (canvasWidth - 24) / unscaledViewport.width;
-    const viewport = page.getViewport({ scale: computedScale * highDpiScale });
-    
-    const tempCanvas = document.createElement('canvas');
-    const context = tempCanvas.getContext('2d');
-    tempCanvas.height = viewport.height;
-    tempCanvas.width = viewport.width;
+      let computedScale = (stageW - 24) / unscaledViewport.width;
+      const viewport = page.getViewport({ scale: computedScale * highDpiScale });
 
-    await page.render({ canvasContext: context, viewport }).promise;
+      const tempCanvas = document.createElement('canvas');
+      const context = tempCanvas.getContext('2d');
+      tempCanvas.height = viewport.height;
+      tempCanvas.width = viewport.width;
 
-    const imgData = tempCanvas.toDataURL('image/png');
-    const ImageClass = getFabricImage();
-    const imgObj = await ImageClass.fromURL(imgData);
+      await page.render({ canvasContext: context, viewport }).promise;
 
-    imgObj.scale(1 / highDpiScale);
-    imgObj.set({ left: (canvasWidth - imgObj.getScaledWidth()) / 2, top: (canvasHeight - imgObj.getScaledHeight()) / 2, selectable: false });
+      const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-    fabricCanvas.clear();
-    fabricCanvas.add(imgObj);
-    fabricCanvas.sendObjectToBack(imgObj);
+      const ImageClass = getFabricImage();
+      if (ImageClass && ImageClass.fromURL) {
+        // Fabric.js v5.3.0 Callback Syntax
+        ImageClass.fromURL(imgDataUrl, (imgObj: any) => {
+          if (!imgObj || !fabricCanvas) return;
 
-    activateToolMode('hand');
-    fabricCanvas.renderAll();
-    saveState(fabricCanvas);
+          imgObj.scale(1 / highDpiScale);
+          imgObj.set({
+            left: (stageW - imgObj.getScaledWidth()) / 2,
+            top: (stageH - imgObj.getScaledHeight()) / 2,
+            selectable: false,
+            evented: false,
+          });
+
+          fabricCanvas.clear();
+          fabricCanvas.add(imgObj);
+          fabricCanvas.sendObjectToBack(imgObj);
+          activateToolMode('hand');
+          fabricCanvas.renderAll();
+          saveState(fabricCanvas);
+          setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages}`);
+        });
+      }
+    } catch (err: any) {
+      console.error('Error rendering PDF page onto canvas:', err);
+      setStatus(`Error rendering PDF: ${err.message}`);
+    }
+  };
+
+  const generateThumbnails = async (pdf: any) => {
+    const thumbs: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      try {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 0.2 });
+        const tempCanvas = document.createElement('canvas');
+        const context = tempCanvas.getContext('2d');
+        tempCanvas.height = viewport.height;
+        tempCanvas.width = viewport.width;
+
+        await page.render({ canvasContext: context, viewport }).promise;
+        thumbs.push(tempCanvas.toDataURL('image/png'));
+      } catch (e) {
+        console.warn('Thumbnail render error:', e);
+      }
+    }
+    setThumbnails(thumbs);
   };
 
   const handlePdfDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileArrayBuffer = await file.arrayBuffer();
+    setStatus('📄 Loading PDF into Canvas Studio...');
     try {
+      const fileArrayBuffer = await file.arrayBuffer();
       const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
       setPdfDoc(loadedPdf);
       setTotalPages(loadedPdf.numPages);
       setPageNum(1);
 
-      await renderPdfPageOntoCanvas(loadedPdf, 1, fitMode);
+      generateThumbnails(loadedPdf);
+      await renderPdfPageOntoCanvas(loadedPdf, 1);
+      setStatus(`✅ PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
     } catch (err: any) {
-      console.error('Error loading PDF:', err);
+      console.error('PDF Upload Error:', err);
+      alert(`Could not load PDF document: ${err.message}`);
+      setStatus(`Error loading PDF: ${err.message}`);
     }
   };
 
   const changePdfPage = async (newPage: number) => {
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
     setPageNum(newPage);
-    await renderPdfPageOntoCanvas(pdfDoc, newPage, fitMode);
+    await renderPdfPageOntoCanvas(pdfDoc, newPage);
   };
 
   const exportCanvasImage = () => {
@@ -966,7 +1014,7 @@ function CanvasStudio() {
     });
 
     for (let i = 1; i <= totalPages; i++) {
-      await renderPdfPageOntoCanvas(pdfDoc, i, fitMode);
+      await renderPdfPageOntoCanvas(pdfDoc, i);
       const pageDataUrl = fabricCanvas.toDataURL({ format: 'png', quality: 1.0 });
       if (i > 1) pdfExport.addPage([fabricCanvas.width, fabricCanvas.height]);
       pdfExport.addImage(pageDataUrl, 'PNG', 0, 0, fabricCanvas.width, fabricCanvas.height);
@@ -1147,7 +1195,7 @@ function CanvasStudio() {
         </div>
       </div>
 
-      {/* 4. MAIN WORKSPACE */}
+      {/* 3. MAIN WORKSPACE */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* PDF Sidebar Navigator */}
         <PageNavigator 
@@ -1297,7 +1345,7 @@ function CanvasStudio() {
         guestUserId={guestUserId}
       />
 
-      {/* 5. WATERMARK ENGINE MODAL */}
+      {/* 4. WATERMARK ENGINE MODAL */}
       <WatermarkModal
         isOpen={isWatermarkModalOpen}
         onClose={() => setIsWatermarkModalOpen(false)}
@@ -1308,7 +1356,7 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 6. OTHER STUDIO MODALS */}
+      {/* 5. OTHER STUDIO MODALS */}
       <SignatureModal 
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}
