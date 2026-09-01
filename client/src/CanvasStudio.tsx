@@ -112,18 +112,14 @@ function CanvasStudio() {
   const [activePortal, setActivePortal] = useState<'pdf' | 'canvas' | 'video'>('pdf');
   
   const [darkMode, setDarkMode] = useState(true);
-  const [, setStatus] = useState('Ready - View Mode');
+  const [statusMessage, setStatusMessage] = useState('Ready - View Mode');
 
-  const [isEditMode, setIsEditMode] = useState(false);
   const [activeEditingObject, setActiveEditingObject] = useState<any>(null);
-
-  const [fitMode] = useState<'width' | 'page'>('width');
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
 
-  const [, setRecentProjects] = useState<any[]>([]);
   const [, setShowProjectsModal] = useState(false);
 
-  // Responsive Default Canvas Dimensions (Adapts to Mobile Screen Width if small viewport)
+  // Responsive Default Canvas Dimensions
   const [canvasWidth, setCanvasWidth] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       return Math.max(320, window.innerWidth - 32);
@@ -144,7 +140,7 @@ function CanvasStudio() {
     return isUrlAdmin || isSavedManager;
   });
 
-  // --- ONE-TIME LIFETIME PAYMENT RECOGNITION & 30-MIN TIMER STATE ---
+  // --- TIMER & PAYWALL STATE ---
   const TIMER_DURATION_SEC = 1800; // 30 Minutes
 
   const [isProUnlocked, setIsProUnlocked] = useState<boolean>(() => {
@@ -158,16 +154,10 @@ function CanvasStudio() {
     return savedTime !== null ? Number(savedTime) : TIMER_DURATION_SEC;
   });
 
-  // MoMo Modal State
+  // Modal States
   const [isMomoModalOpen, setIsMomoModalOpen] = useState(false);
-
-  // Unlimited Duration Audio/Video Recorder State
   const [isUnlimitedRecorderOpen, setIsUnlimitedRecorderOpen] = useState(false);
-
-  // 💬 Real-Time Social Chat & P2P Calls Modal State
   const [isSocialMessengerOpen, setIsSocialMessengerOpen] = useState(false);
-
-  // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
   const [isAiSummaryModalOpen, setIsAiSummaryModalOpen] = useState(false);
@@ -177,11 +167,8 @@ function CanvasStudio() {
   const [isRedactionModalOpen, setIsRedactionModalOpen] = useState(false);
   const [isWatermarkModalOpen, setIsWatermarkModalOpen] = useState(false);
   
-  // Precision Ruler Tool State
+  // Tools & OCR State
   const [isRulerActive, setIsRulerActive] = useState(false);
-
-  // Zoom & OCR State
-  const [, setZoomLevel] = useState(1.0);
   const [isOcrModalOpen, setIsOcrModalOpen] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatusText, setOcrStatusText] = useState('Initializing OCR Engine...');
@@ -203,12 +190,7 @@ function CanvasStudio() {
     return existingId;
   });
 
-  const [currentProjectId] = useState<string | null>(null);
-  const [projectTitle] = useState('My OmniStudio Project');
-
   const [activeTool, setActiveTool] = useState('hand');
-  const activeToolRef = useRef('hand');
-
   const [undoStack, setUndoStack] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
 
@@ -221,9 +203,6 @@ function CanvasStudio() {
   const [totalPages, setTotalPages] = useState(0);
   const [thumbnails, setThumbnails] = useState<string[]>([]);
 
-  const [, setTranscriptSegments] = useState<any[]>([]);
-
-  // 30-Minute Free Access Countdown Timer Effect (Disabled for App Manager & Paid Users)
   useEffect(() => {
     if (isProUnlocked || isAppManager) return;
 
@@ -242,11 +221,15 @@ function CanvasStudio() {
     return () => clearInterval(interval);
   }, [isProUnlocked, isAppManager]);
 
-  // Helper: Format Seconds => "29:45"
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const notifyUser = (msg: string) => {
+    setStatusMessage(msg);
+    console.log('📌 OmniStudio Status:', msg);
   };
 
   const handleResizeCanvas = (newWidth: number, newHeight: number) => {
@@ -262,23 +245,83 @@ function CanvasStudio() {
     }
   };
 
-  const togglePlayPause = () => {
-    setIsPlaying(!isPlaying);
-    setStatus(isPlaying ? '⏸️ Paused Playback' : '▶️ Playing Timeline');
+  // --- DUMMY HANDLER FIXES IMPLEMENTED ---
+  const handleLoadSampleDemo = () => {
+    if (!fabricCanvas) return;
+    fabricCanvas.clear();
+    
+    // Create Sample Canvas Document
+    const ITextClass = getFabricIText();
+    if (ITextClass) {
+      const title = new ITextClass('🎨 Welcome to OmniStudio Canvas!', {
+        left: 50,
+        top: 40,
+        fontSize: 28,
+        fontFamily: 'Arial',
+        fontWeight: 'bold',
+        fill: '#0284c7',
+      });
+      const subtitle = new ITextClass('You can edit PDFs, type documents, draw, record audio, and make WebRTC calls.', {
+        left: 50,
+        top: 90,
+        fontSize: 16,
+        fontFamily: 'Arial',
+        fill: '#475569',
+      });
+      fabricCanvas.add(title, subtitle);
+      fabricCanvas.renderAll();
+      saveState();
+      notifyUser('🚀 Loaded Sample OmniStudio Canvas Project');
+    }
   };
 
-  const handleTimelineScrub = (newTime: number) => {
-    setTimelineSec(newTime);
+  const handleGenerateShareableProjectUrl = () => {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?project=${guestUserId}`;
+    navigator.clipboard.writeText(shareUrl);
+    alert(`🔗 Shareable Project URL copied to clipboard:\n${shareUrl}`);
+    notifyUser('🔗 Project share URL copied to clipboard!');
   };
 
-  // --- NATIVE PDF VECTOR TEXT EXTRACTION & EDITING ENGINE ---
+  const handleApplyCropMask = () => {
+    if (!fabricCanvas) return;
+    const activeObj = fabricCanvas.getActiveObject();
+    if (!activeObj) {
+      alert('Please select an image or object on the canvas first to apply a crop mask!');
+      return;
+    }
+    activeObj.set({ clipPath: new (fabric as any).Rect({ width: activeObj.width * 0.8, height: activeObj.height * 0.8, originX: 'center', originY: 'center' }) });
+    fabricCanvas.renderAll();
+    saveState();
+    setIsCropModalOpen(false);
+    notifyUser('✂️ Applied crop mask to selected canvas element!');
+  };
+
+  const handleApplyRedaction = () => {
+    if (!fabricCanvas) return;
+    const redactionBox = new (fabric as any).Rect({
+      left: fabricCanvas.width / 2 - 100,
+      top: fabricCanvas.height / 2 - 25,
+      width: 200,
+      height: 50,
+      fill: '#000000',
+      selectable: true,
+    });
+    fabricCanvas.add(redactionBox);
+    fabricCanvas.setActiveObject(redactionBox);
+    fabricCanvas.renderAll();
+    saveState();
+    setIsRedactionModalOpen(false);
+    notifyUser('⬛ Redaction blackout shield added to canvas!');
+  };
+
+  // --- PDF EDITING ENGINE ---
   const handleExtractAndEditPdfText = async () => {
     if (!pdfDoc || !fabricCanvas) {
-      alert('Please upload a PDF document first!');
+      alert('Please upload a PDF document first using the "Upload PDF" button in the ribbon!');
       return;
     }
 
-    setStatus('🔍 Extracting vector text elements from PDF page...');
+    notifyUser('🔍 Extracting vector text elements from PDF page...');
     try {
       const page = await pdfDoc.getPage(pageNum);
       const textContent = await page.getTextContent();
@@ -321,7 +364,7 @@ function CanvasStudio() {
 
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`✨ Converted ${extractedCount} PDF text elements into editable text nodes!`);
+      notifyUser(`✨ Converted ${extractedCount} PDF text elements into editable text nodes!`);
       alert(`✨ Converted ${extractedCount} text elements on Page ${pageNum} into editable text boxes! Click any text on the screen to edit it.`);
     } catch (err: any) {
       console.error('PDF Text Extraction Error:', err);
@@ -329,26 +372,23 @@ function CanvasStudio() {
     }
   };
 
-  // --- ONE-TIME PAYMENT VERIFICATION HANDLER ---
   const handlePaymentSuccessUnlock = (reference: string) => {
     localStorage.setItem('omni_pro_unlocked', 'true');
     localStorage.setItem('omni_pro_unlocked_token', `token_${reference}_${Date.now()}`);
     setIsProUnlocked(true);
-    setStatus('🎉 Payment Verified! Lifetime Access Unlocked. Ref: ' + reference);
-    alert('🎉 Payment Successful! Your lifetime license has been recorded. You will never be prompted to pay again!');
+    notifyUser('🎉 Payment Verified! Lifetime Access Unlocked. Ref: ' + reference);
+    alert('🎉 Payment Successful! Your lifetime license has been recorded.');
   };
 
-  // --- APP MANAGER (ADMIN) UNLOCK HANDLER ---
   const handleAppManagerUnlock = () => {
     localStorage.setItem('omni_user_role', 'manager');
     localStorage.setItem('omni_pro_unlocked', 'true');
     setIsAppManager(true);
     setIsProUnlocked(true);
-    setStatus('👑 App Manager Mode Activated - Unrestricted Access Enabled');
-    alert('👑 App Manager Mode Activated! You now have lifetime unrestricted access without any payment requirements.');
+    notifyUser('👑 App Manager Mode Activated - Unrestricted Access Enabled');
+    alert('👑 App Manager Mode Activated! Lifetime unrestricted access enabled.');
   };
 
-  // --- 1. ADVANCED MULTI-PAGE WATERMARK ENGINE ---
   const handleApplyAdvancedWatermark = (
     text: string, 
     angle: number, 
@@ -378,11 +418,10 @@ function CanvasStudio() {
       fabricCanvas.setActiveObject(watermarkObj);
       fabricCanvas.renderAll();
       saveState();
-      setStatus(`💧 Watermark "${text}" (${angle}°, ${Math.round(opacity * 100)}% opacity) applied to target range: ${pageRange}`);
+      notifyUser(`💧 Watermark "${text}" applied to target range: ${pageRange}`);
     }
   };
 
-  // --- 2. BRAND COLOR PALETTE SWATCH SELECTOR ---
   const handleSelectBrandColor = (hexColor: string) => {
     setTextColorVal(hexColor);
     if (fabricCanvas) {
@@ -401,7 +440,7 @@ function CanvasStudio() {
         saveState();
       }
     }
-    setStatus(`🎨 Applied Brand Swatch: ${hexColor}`);
+    notifyUser(`🎨 Applied Brand Swatch: ${hexColor}`);
   };
 
   const handleOpenEyeDropper = async () => {
@@ -421,7 +460,7 @@ function CanvasStudio() {
   };
 
   const handleMergePdfs = async (files: File[]) => {
-    setStatus('📄 Stitching & merging PDF documents into single bundle...');
+    notifyUser('📄 Stitching & merging PDF documents into single bundle...');
     const allThumbs: string[] = [];
 
     for (let f = 0; f < files.length; f++) {
@@ -448,67 +487,62 @@ function CanvasStudio() {
     setThumbnails(allThumbs);
     setTotalPages(allThumbs.length);
     setPageNum(1);
-    setStatus(`✅ Merged ${files.length} PDFs into unified ${allThumbs.length}-page document!`);
+    notifyUser(`✅ Merged ${files.length} PDFs into unified ${allThumbs.length}-page document!`);
   };
 
+  // --- ALIGNMENT WITH FALLBACK NOTIFICATIONS ---
   const handleAlignLeft = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.set({ left: 20 });
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    activeObj.set({ left: 20 });
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleAlignCenter = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.centerH();
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
+    activeObj.centerH();
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleAlignRight = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.set({ left: fabricCanvas.width - activeObj.width * (activeObj.scaleX || 1) - 20 });
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    activeObj.set({ left: fabricCanvas.width - activeObj.width * (activeObj.scaleX || 1) - 20 });
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleAlignTop = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.set({ top: 20 });
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    activeObj.set({ top: 20 });
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleAlignMiddle = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.centerV();
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    activeObj.centerV();
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleAlignBottom = () => {
     if (!fabricCanvas) return;
     const activeObj = fabricCanvas.getActiveObject();
-    if (activeObj) {
-      activeObj.set({ top: fabricCanvas.height - activeObj.height * (activeObj.scaleY || 1) - 20 });
-      fabricCanvas.renderAll();
-      saveState();
-    }
+    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    activeObj.set({ top: fabricCanvas.height - activeObj.height * (activeObj.scaleY || 1) - 20 });
+    fabricCanvas.renderAll();
+    saveState();
   };
 
   const handleGroupObjects = () => {
@@ -518,6 +552,8 @@ function CanvasStudio() {
       activeObj.toGroup();
       fabricCanvas.renderAll();
       saveState();
+    } else {
+      alert('Please select multiple objects on canvas using Shift+Click to group them!');
     }
   };
 
@@ -528,6 +564,8 @@ function CanvasStudio() {
       activeObj.toActiveSelection();
       fabricCanvas.renderAll();
       saveState();
+    } else {
+      alert('Please select a grouped object on canvas to ungroup it!');
     }
   };
 
@@ -809,7 +847,6 @@ function CanvasStudio() {
     saveState();
   };
 
-  // --- INITIALIZE FABRIC CANVAS WITH MOBILE TOUCH SUPPORT ---
   useEffect(() => {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) return;
@@ -821,7 +858,7 @@ function CanvasStudio() {
       defaultCursor: 'grab',
       renderOnAddRemove: true,
       skipTargetFind: false,
-      allowTouchScrolling: true, // Crucial for non-blocking mobile touches & gestures
+      allowTouchScrolling: true,
       enableRetinaScaling: true,
     });
 
@@ -887,7 +924,6 @@ function CanvasStudio() {
     handleResizeCanvas(width, height);
   };
 
-  // Triggers the MoMo & Regional Selector Modal
   const handlePaystackUpgrade = () => {
     setIsMomoModalOpen(true);
   };
@@ -962,7 +998,6 @@ function CanvasStudio() {
     fabricCanvas.isDrawingMode = mode === 'draw';
   };
 
-  // --- AUTOMATIC ASPECT-RATIO FIT PDF PAGE RENDER PIPELINE (NATIVE HTML IMAGE PRELOADER) ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -976,7 +1011,6 @@ function CanvasStudio() {
 
       fabricCanvas.setDimensions({ width: stageW, height: stageH });
 
-      // Calculate scale to fit BOTH width and height inside the canvas stage (with 24px padding)
       const scaleX = (stageW - 24) / unscaledViewport.width;
       const scaleY = (stageH - 24) / unscaledViewport.height;
       const computedScale = Math.min(scaleX, scaleY);
@@ -992,7 +1026,6 @@ function CanvasStudio() {
 
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      // Native HTML Image Preloader to bypass Fabric.js v5.3.0 async callback delays
       const htmlImg = new Image();
       htmlImg.onload = () => {
         if (!fabricCanvas) return;
@@ -1018,13 +1051,13 @@ function CanvasStudio() {
         activateToolMode('hand');
         fabricCanvas.renderAll();
         saveState(fabricCanvas);
-        setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages} in Viewport Stage`);
+        notifyUser(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages}`);
       };
       htmlImg.src = imgDataUrl;
 
     } catch (err: any) {
       console.error('Error rendering PDF page onto canvas:', err);
-      setStatus(`Error rendering PDF: ${err.message}`);
+      notifyUser(`Error rendering PDF: ${err.message}`);
     }
   };
 
@@ -1052,7 +1085,7 @@ function CanvasStudio() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setStatus('📄 Loading PDF into Canvas Studio...');
+    notifyUser('📄 Loading PDF into Canvas Studio...');
     try {
       const fileArrayBuffer = await file.arrayBuffer();
       const loadedPdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
@@ -1062,11 +1095,11 @@ function CanvasStudio() {
 
       generateThumbnails(loadedPdf);
       await renderPdfPageOntoCanvas(loadedPdf, 1);
-      setStatus(`✅ PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
+      notifyUser(`✅ PDF Loaded! Page 1 of ${loadedPdf.numPages}`);
     } catch (err: any) {
       console.error('PDF Upload Error:', err);
       alert(`Could not load PDF document: ${err.message}`);
-      setStatus(`Error loading PDF: ${err.message}`);
+      notifyUser(`Error loading PDF: ${err.message}`);
     }
   };
 
@@ -1111,17 +1144,17 @@ function CanvasStudio() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
-      {/* 1. TOP PORTAL SWITCHER & MAIN TOOLBAR (ISOLATED Z-INDEX TO ENSURE UNIMPEDED TOUCH RESPONSIVENESS) */}
+      {/* 1. TOP PORTAL SWITCHER & MAIN TOOLBAR */}
       <div style={{ position: 'relative', zIndex: 50, touchAction: 'manipulation' }}>
         <MainToolbar 
           activePortal={activePortal}
           setActivePortal={setActivePortal}
-          loadSampleDemo={() => {}}
+          loadSampleDemo={handleLoadSampleDemo}
           setShowProjectsModal={setShowProjectsModal}
           exportCanvasImage={exportCanvasImage}
           exportCompletePdf={exportCompletePdf}
           exportMp4Video={exportMp4Video}
-          generateShareableProjectUrl={() => {}}
+          generateShareableProjectUrl={handleGenerateShareableProjectUrl}
           handlePaystackUpgrade={handlePaystackUpgrade}
           onOpenAiSummaryModal={() => setIsAiSummaryModalOpen(true)}
           onOpenMediaLibraryModal={() => setIsMediaLibraryOpen(true)}
@@ -1130,7 +1163,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 2. SECONDARY TOOL RIBBON (TIER 2 - COMPACT NON-OVERLAPPING RIBBON WITH HIGH TOUCH STACKING) */}
+      {/* 2. SECONDARY TOOL RIBBON */}
       <div style={{ position: 'relative', zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, overflowX: 'auto', whiteSpace: 'nowrap', touchAction: 'manipulation' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
@@ -1168,10 +1201,10 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (TIER 3 - NON-OVERLAPPING RESPONSIVE HEADER BAR) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px', touchAction: 'manipulation' }}>
         
-        {/* LEFT: QUICK LAUNCHERS (RECORDER, SOCIAL CHAT & EDIT PDF TEXT) */}
+        {/* LEFT: QUICK LAUNCHERS */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <button
             onClick={handleExtractAndEditPdfText}
@@ -1243,15 +1276,19 @@ function CanvasStudio() {
           </button>
         </div>
 
-        {/* CENTER: PAYWALL STATUS / TIMER / APP MANAGER BADGE */}
-        <div style={{ flexShrink: 0 }}>
+        {/* CENTER: STATUS & PAYWALL DISPLAY */}
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '500' }}>
+            {statusMessage}
+          </span>
+
           {isAppManager ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-              <span>👑 App Manager - Free Access</span>
+              <span>👑 App Manager</span>
             </div>
           ) : isProUnlocked ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-              <span>🎉 Lifetime Access Unlocked</span>
+              <span>🎉 Pro Unlocked</span>
             </div>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1286,9 +1323,8 @@ function CanvasStudio() {
                   transition: 'all 0.15s ease',
                   touchAction: 'manipulation'
                 }}
-                title="Pay 50 GHS upfront to unlock permanent access"
               >
-                ⚡ Unlock Lifetime Access
+                ⚡ Unlock Pro
               </button>
             </div>
           )}
@@ -1303,9 +1339,8 @@ function CanvasStudio() {
         </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE WITH STRICT CONTAINER ISOLATION */}
+      {/* 3. MAIN WORKSPACE */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
-        {/* PDF Sidebar Navigator */}
         <PageNavigator 
           thumbnails={thumbnails}
           pageNum={pageNum}
@@ -1318,10 +1353,8 @@ function CanvasStudio() {
           borderCol={borderCol}
         />
 
-        {/* Center Canvas Viewport with Precision Ruler Overlay & Manual Resizer UI */}
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
-          {/* 📏 PRECISION RULER & MANUAL DIMENSION CONTROL BAR */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <PrecisionRuler
               fabricCanvas={fabricCanvas}
@@ -1329,7 +1362,6 @@ function CanvasStudio() {
               onToggle={setIsRulerActive}
             />
 
-            {/* MANUAL W x H INPUT CONTROLS */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px', color: '#94a3b8' }}>
               <span>Stage:</span>
               <input
@@ -1349,7 +1381,6 @@ function CanvasStudio() {
             </div>
           </div>
 
-          {/* CANVAS STAGE CONTAINER WITH INTERACTIVE CORNER RESIZE HANDLE */}
           <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden' }}>
             <CanvasViewport 
               canvasRef={canvasRef}
@@ -1360,7 +1391,6 @@ function CanvasStudio() {
               saveState={saveState}
             />
 
-            {/* BLUE CORNER DRAG HANDLE TO MANUALLY RESIZE CANVAS STAGE */}
             <div
               onMouseDown={(e) => {
                 e.preventDefault();
@@ -1370,9 +1400,7 @@ function CanvasStudio() {
                 const startH = canvasHeight;
 
                 const onMouseMove = (moveEvent: MouseEvent) => {
-                  const deltaX = moveEvent.clientX - startX;
-                  const deltaY = moveEvent.clientY - startY;
-                  handleResizeCanvas(startW + deltaX, startH + deltaY);
+                  handleResizeCanvas(startW + (moveEvent.clientX - startX), startH + (moveEvent.clientY - startY));
                 };
 
                 const onMouseUp = () => {
@@ -1382,28 +1410,6 @@ function CanvasStudio() {
 
                 window.addEventListener('mousemove', onMouseMove);
                 window.addEventListener('mouseup', onMouseUp);
-              }}
-              onTouchStart={(e) => {
-                const touch = e.touches[0];
-                const startX = touch.clientX;
-                const startY = touch.clientY;
-                const startW = canvasWidth;
-                const startH = canvasHeight;
-
-                const onTouchMove = (moveEvent: TouchEvent) => {
-                  const t = moveEvent.touches[0];
-                  const deltaX = t.clientX - startX;
-                  const deltaY = t.clientY - startY;
-                  handleResizeCanvas(startW + deltaX, startH + deltaY);
-                };
-
-                const onTouchEnd = () => {
-                  window.removeEventListener('touchmove', onTouchMove);
-                  window.removeEventListener('touchend', onTouchEnd);
-                };
-
-                window.addEventListener('touchmove', onTouchMove, { passive: true });
-                window.addEventListener('touchend', onTouchEnd);
               }}
               style={{
                 position: 'absolute',
@@ -1419,12 +1425,11 @@ function CanvasStudio() {
                 boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
                 touchAction: 'none'
               }}
-              title="Click and drag to manually resize canvas screen"
+              title="Drag to resize canvas stage"
             />
           </div>
         </div>
 
-        {/* Right Layers & Property Inspector Panels */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px' }}>
           {activeEditingObject && (
             <PropertyInspector 
@@ -1445,14 +1450,13 @@ function CanvasStudio() {
         </div>
       </div>
 
-      {/* 🔒 30-MINUTE EXPIRED PAYWALL LOCK MODAL */}
+      {/* MODALS */}
       <TimedPaywallModal
         isOpen={!isProUnlocked && !isAppManager && freeTimeRemainingSec <= 0}
         onUnlockPaystack={handlePaystackUpgrade}
         formattedPrice="50 GHS"
       />
 
-      {/* 📱 MOMO COUNTRY, CURRENCY & PROVIDER SELECTOR MODAL */}
       <MomoCheckoutModal
         isOpen={isMomoModalOpen}
         onClose={() => setIsMomoModalOpen(false)}
@@ -1461,7 +1465,6 @@ function CanvasStudio() {
         guestUserId={guestUserId}
       />
 
-      {/* 🎙️ UNLIMITED DURATION RECORDER & AI TRANSCRIBER MODAL */}
       <UnlimitedStudioRecorderModal
         isOpen={isUnlimitedRecorderOpen}
         onClose={() => setIsUnlimitedRecorderOpen(false)}
@@ -1469,14 +1472,12 @@ function CanvasStudio() {
         onInsertTranscriptToCanvas={handleInsertOcrAsDocNode}
       />
 
-      {/* 💬 REAL-TIME SOCIAL CHAT & P2P VOICE/VIDEO CALLS MODAL */}
       <SocialMessengerModal
         isOpen={isSocialMessengerOpen}
         onClose={() => setIsSocialMessengerOpen(false)}
         guestUserId={guestUserId}
       />
 
-      {/* 4. WATERMARK ENGINE MODAL */}
       <WatermarkModal
         isOpen={isWatermarkModalOpen}
         onClose={() => setIsWatermarkModalOpen(false)}
@@ -1487,7 +1488,6 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      {/* 5. OTHER STUDIO MODALS */}
       <SignatureModal 
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}
@@ -1543,7 +1543,7 @@ function CanvasStudio() {
       <CropMaskModal 
         isOpen={isCropModalOpen}
         onClose={() => setIsCropModalOpen(false)}
-        onApplyCrop={() => {}}
+        onApplyCrop={handleApplyCropMask}
         borderCol={borderCol}
         bgBar={bgBar}
       />
@@ -1551,20 +1551,19 @@ function CanvasStudio() {
       <RedactionModal 
         isOpen={isRedactionModalOpen}
         onClose={() => setIsRedactionModalOpen(false)}
-        onApplyRedaction={() => {}}
+        onApplyRedaction={handleApplyRedaction}
         totalPages={totalPages || 1}
         currentPage={pageNum || 1}
         borderCol={borderCol}
         bgBar={bgBar}
       />
 
-      {/* TIMELINE BAR */}
       <TimelineBar 
         isPlaying={isPlaying}
-        onTogglePlay={togglePlayPause}
+        onTogglePlay={() => setIsPlaying(!isPlaying)}
         currentTime={timelineSec}
         duration={videoDuration}
-        onSeek={handleTimelineScrub}
+        onSeek={(t) => setTimelineSec(t)}
         borderCol={borderCol}
         bgBar={bgBar}
       />
