@@ -57,27 +57,21 @@ const ensureValidHexColor = (color?: string | null, fallbackHex = '#0f172a'): st
   return fallbackHex;
 };
 
-// --- UNIVERSAL FABRIC CONSTRUCTOR RESOLVERS ---
-const getFabricCanvas = (): any => 
-  (fabric as any).Canvas || 
-  (fabric as any).default?.Canvas || 
-  (fabric as any).default?.default?.Canvas || 
-  fabric;
-
-const getFabricIText = (): any => 
-  (fabric as any).IText || 
-  (fabric as any).Textbox || 
-  (fabric as any).default?.IText || 
-  (fabric as any).default?.Textbox;
-
-const getFabricImage = (): any => 
-  (fabric as any).Image || 
-  (fabric as any).default?.Image || 
-  (fabric as any).FabricImage;
-
-const getFabricPencilBrush = (): any => 
-  (fabric as any).PencilBrush || 
-  (fabric as any).default?.PencilBrush;
+// --- UNIVERSAL PRODUCTION SAFE FABRIC CONSTRUCTOR RESOLVER ---
+const getFabricClass = (className: string): any => {
+  const f = fabric as any;
+  if (typeof f[className] === 'function') return f[className];
+  if (typeof f.default?.[className] === 'function') return f.default[className];
+  if (typeof f.default?.fabric?.[className] === 'function') return f.default.fabric[className];
+  if (typeof f.fabric?.[className] === 'function') return f.fabric[className];
+  
+  // Specific Fallbacks
+  if (className === 'IText' && typeof f.Textbox === 'function') return f.Textbox;
+  if (className === 'Image' && typeof f.FabricImage === 'function') return f.FabricImage;
+  
+  console.error(`Fabric class "${className}" could not be resolved to a constructor function.`);
+  return null;
+};
 
 // --- REACT ERROR BOUNDARY ---
 interface StudioErrorBoundaryProps {
@@ -271,7 +265,7 @@ function CanvasStudio() {
     if (!targetCanvas) return;
     targetCanvas.clear();
     
-    const ITextClass = getFabricIText();
+    const ITextClass = getFabricClass('IText');
     if (ITextClass) {
       const title = new ITextClass('🎨 Welcome to OmniStudio Canvas!', {
         left: 50,
@@ -310,30 +304,36 @@ function CanvasStudio() {
       alert('Please select an image or object on the canvas first to apply a crop mask!');
       return;
     }
-    activeObj.set({ clipPath: new (fabric as any).Rect({ width: activeObj.width * 0.8, height: activeObj.height * 0.8, originX: 'center', originY: 'center' }) });
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
-    setIsCropModalOpen(false);
-    notifyUser('✂️ Applied crop mask to selected canvas element!');
+    const RectClass = getFabricClass('Rect');
+    if (RectClass) {
+      activeObj.set({ clipPath: new RectClass({ width: activeObj.width * 0.8, height: activeObj.height * 0.8, originX: 'center', originY: 'center' }) });
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+      setIsCropModalOpen(false);
+      notifyUser('✂️ Applied crop mask to selected canvas element!');
+    }
   };
 
   const handleApplyRedaction = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const redactionBox = new (fabric as any).Rect({
-      left: targetCanvas.width / 2 - 100,
-      top: targetCanvas.height / 2 - 25,
-      width: 200,
-      height: 50,
-      fill: '#000000',
-      selectable: true,
-    });
-    targetCanvas.add(redactionBox);
-    targetCanvas.setActiveObject(redactionBox);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
-    setIsRedactionModalOpen(false);
-    notifyUser('⬛ Redaction blackout shield added to canvas!');
+    const RectClass = getFabricClass('Rect');
+    if (RectClass) {
+      const redactionBox = new RectClass({
+        left: targetCanvas.width / 2 - 100,
+        top: targetCanvas.height / 2 - 25,
+        width: 200,
+        height: 50,
+        fill: '#000000',
+        selectable: true,
+      });
+      targetCanvas.add(redactionBox);
+      targetCanvas.setActiveObject(redactionBox);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+      setIsRedactionModalOpen(false);
+      notifyUser('⬛ Redaction blackout shield added to canvas!');
+    }
   };
 
   // --- SYNCHRONOUS RESILIENT PDF VIEWPORT RENDER ENGINE ---
@@ -377,7 +377,7 @@ function CanvasStudio() {
       await page.render({ canvasContext: context, viewport }).promise;
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      // Native Image Preloader with Error Shielding
+      // Native Image Preloader
       const img = new Image();
       img.onerror = (e) => {
         console.error('HTML Image Preloader Failed:', e);
@@ -389,7 +389,7 @@ function CanvasStudio() {
           const targetCanvas = fabricCanvasRef.current || fabricCanvas;
           if (!targetCanvas) return;
 
-          const ImageClass = getFabricImage();
+          const ImageClass = getFabricClass('Image');
           if (!ImageClass) throw new Error('Fabric Image Constructor Class not found');
 
           const scaledW = tempCanvas.width / highDpiScale;
@@ -460,7 +460,7 @@ function CanvasStudio() {
       setTotalPages(loadedPdf.numPages);
       setPageNum(1);
 
-      // STEP 1: Generate Sidebar Thumbnails FIRST (Guarantees sidebar navigator populates instantly)
+      // STEP 1: Generate Sidebar Thumbnails
       generateThumbnails(loadedPdf);
 
       // STEP 2: Render Page 1 to Viewport Stage
@@ -497,7 +497,7 @@ function CanvasStudio() {
       const scaleY = (stageH - 24) / viewport.height;
       const scale = Math.min(scaleX, scaleY);
 
-      const ITextClass = getFabricIText();
+      const ITextClass = getFabricClass('IText');
       let extractedCount = 0;
 
       textContent.items.forEach((item: any) => {
@@ -563,7 +563,7 @@ function CanvasStudio() {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
 
-    const TextClass = (fabric as any).Text || ((fabric as any).default && (fabric as any).default.Text);
+    const TextClass = getFabricClass('Text');
     if (TextClass) {
       const watermarkObj = new TextClass(text.toUpperCase(), {
         fontSize: 44,
@@ -701,7 +701,7 @@ function CanvasStudio() {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
     const activeObj = targetCanvas.getActiveObject();
-    if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
+    if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
     activeObj.centerV();
     targetCanvas.renderAll();
     saveState(targetCanvas);
@@ -783,7 +783,7 @@ function CanvasStudio() {
     if (!targetCanvas) return;
 
     if (type === 'image') {
-      const ImageClass = getFabricImage();
+      const ImageClass = getFabricClass('Image');
       if (ImageClass) {
         const img = new Image();
         img.onload = () => {
@@ -799,7 +799,7 @@ function CanvasStudio() {
         img.src = contentUrlOrText;
       }
     } else if (type === 'template') {
-      const ITextClass = getFabricIText();
+      const ITextClass = getFabricClass('IText');
       if (ITextClass) {
         const textObj = new ITextClass(contentUrlOrText, {
           left: 150,
@@ -822,69 +822,81 @@ function CanvasStudio() {
   const handleAddRectangle = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const rect = new (fabric as any).Rect({
-      left: 180,
-      top: 180,
-      width: 140,
-      height: 90,
-      fill: 'rgba(2, 132, 199, 0.2)',
-      stroke: '#0284c7',
-      strokeWidth: 2,
-      rx: 6,
-      ry: 6,
-    });
-    targetCanvas.add(rect);
-    targetCanvas.setActiveObject(rect);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
+    const RectClass = getFabricClass('Rect');
+    if (RectClass) {
+      const rect = new RectClass({
+        left: 180,
+        top: 180,
+        width: 140,
+        height: 90,
+        fill: 'rgba(2, 132, 199, 0.2)',
+        stroke: '#0284c7',
+        strokeWidth: 2,
+        rx: 6,
+        ry: 6,
+      });
+      targetCanvas.add(rect);
+      targetCanvas.setActiveObject(rect);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+    }
   };
 
   const handleAddCircle = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const circle = new (fabric as any).Circle({
-      left: 220,
-      top: 200,
-      radius: 50,
-      fill: 'rgba(139, 92, 246, 0.2)',
-      stroke: '#8b5cf6',
-      strokeWidth: 2,
-    });
-    targetCanvas.add(circle);
-    targetCanvas.setActiveObject(circle);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
+    const CircleClass = getFabricClass('Circle');
+    if (CircleClass) {
+      const circle = new CircleClass({
+        left: 220,
+        top: 200,
+        radius: 50,
+        fill: 'rgba(139, 92, 246, 0.2)',
+        stroke: '#8b5cf6',
+        strokeWidth: 2,
+      });
+      targetCanvas.add(circle);
+      targetCanvas.setActiveObject(circle);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+    }
   };
 
   const handleAddTriangle = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const triangle = new (fabric as any).Triangle({
-      left: 250,
-      top: 210,
-      width: 100,
-      height: 90,
-      fill: 'rgba(245, 158, 11, 0.2)',
-      stroke: '#f59e0b',
-      strokeWidth: 2,
-    });
-    targetCanvas.add(triangle);
-    targetCanvas.setActiveObject(triangle);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
+    const TriangleClass = getFabricClass('Triangle');
+    if (TriangleClass) {
+      const triangle = new TriangleClass({
+        left: 250,
+        top: 210,
+        width: 100,
+        height: 90,
+        fill: 'rgba(245, 158, 11, 0.2)',
+        stroke: '#f59e0b',
+        strokeWidth: 2,
+      });
+      targetCanvas.add(triangle);
+      targetCanvas.setActiveObject(triangle);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+    }
   };
 
   const handleAddArrow = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const line = new (fabric as any).Line([100, 200, 250, 200], {
-      stroke: '#10b981',
-      strokeWidth: 4,
-    });
-    targetCanvas.add(line);
-    targetCanvas.setActiveObject(line);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
+    const LineClass = getFabricClass('Line');
+    if (LineClass) {
+      const line = new LineClass([100, 200, 250, 200], {
+        stroke: '#10b981',
+        strokeWidth: 4,
+      });
+      targetCanvas.add(line);
+      targetCanvas.setActiveObject(line);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+    }
   };
 
   const handleActivatePencil = () => {
@@ -895,7 +907,7 @@ function CanvasStudio() {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
     targetCanvas.isDrawingMode = true;
-    const PencilBrushClass = getFabricPencilBrush();
+    const PencilBrushClass = getFabricClass('PencilBrush');
     if (PencilBrushClass) {
       const brush = new PencilBrushClass(targetCanvas);
       brush.width = 16;
@@ -919,7 +931,7 @@ function CanvasStudio() {
   };
 
   const handleSaveAudioCard = (_audioUrl: string, transcript: string) => {
-    const ITextClass = getFabricIText();
+    const ITextClass = getFabricClass('IText');
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (ITextClass && targetCanvas) {
       const textObj = new ITextClass(`🎙️ Voice Dictation:\n"${transcript}"`, {
@@ -939,7 +951,7 @@ function CanvasStudio() {
   };
 
   const handleInsertSummaryCard = (summaryText: string) => {
-    const ITextClass = getFabricIText();
+    const ITextClass = getFabricClass('IText');
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (ITextClass && targetCanvas) {
       const textObj = new ITextClass(summaryText, {
@@ -989,7 +1001,7 @@ function CanvasStudio() {
   };
 
   const handleInsertOcrAsDocNode = (text: string) => {
-    const ITextClass = getFabricIText();
+    const ITextClass = getFabricClass('IText');
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (ITextClass && targetCanvas) {
       const textObj = new ITextClass(text, {
@@ -1010,7 +1022,7 @@ function CanvasStudio() {
   const handleSaveSignature = async (dataUrl: string) => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const ImageClass = getFabricImage();
+    const ImageClass = getFabricClass('Image');
     if (ImageClass) {
       const img = new Image();
       img.onload = () => {
@@ -1030,23 +1042,29 @@ function CanvasStudio() {
   const handleAddStamp = (stampText: string, color: string) => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const stampTextObj = new (fabric as any).Text(stampText, { fontSize: 20, fontWeight: 'bold', fill: color, left: 15, top: 10 });
-    const stampRectObj = new (fabric as any).Rect({ width: stampTextObj.width + 30, height: stampTextObj.height + 20, fill: 'rgba(255, 255, 255, 0.95)', stroke: color, strokeWidth: 3, rx: 6, ry: 6 });
-    const stampGroup = new (fabric as any).Group([stampRectObj, stampTextObj], { left: 350, top: 150, angle: -10 });
+    const TextClass = getFabricClass('Text');
+    const RectClass = getFabricClass('Rect');
+    const GroupClass = getFabricClass('Group');
 
-    targetCanvas.add(stampGroup);
-    targetCanvas.setActiveObject(stampGroup);
-    targetCanvas.renderAll();
-    saveState(targetCanvas);
+    if (TextClass && RectClass && GroupClass) {
+      const stampTextObj = new TextClass(stampText, { fontSize: 20, fontWeight: 'bold', fill: color, left: 15, top: 10 });
+      const stampRectObj = new RectClass({ width: stampTextObj.width + 30, height: stampTextObj.height + 20, fill: 'rgba(255, 255, 255, 0.95)', stroke: color, strokeWidth: 3, rx: 6, ry: 6 });
+      const stampGroup = new GroupClass([stampRectObj, stampTextObj], { left: 350, top: 150, angle: -10 });
+
+      targetCanvas.add(stampGroup);
+      targetCanvas.setActiveObject(stampGroup);
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+    }
   };
 
   // --- INITIALIZE FABRIC CANVAS INSTANCE ---
   useEffect(() => {
     if (!canvasRef.current) return;
 
-    const CanvasClass = getFabricCanvas();
+    const CanvasClass = getFabricClass('Canvas');
     if (!CanvasClass) {
-      console.error('Fabric Canvas Class could not be resolved');
+      console.error('Fabric Canvas Class could not be resolved in production bundle.');
       return;
     }
 
@@ -1077,6 +1095,8 @@ function CanvasStudio() {
       fabricCanvasRef.current = canvas;
       setFabricCanvas(canvas);
       saveState(canvas);
+
+      console.log('✅ Fabric Canvas initialized successfully!');
 
       return () => {
         try {
@@ -1142,7 +1162,7 @@ function CanvasStudio() {
   const addText = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
-    const ITextClass = getFabricIText();
+    const ITextClass = getFabricClass('IText');
     if (!ITextClass) return;
 
     const text = new ITextClass('Type text here...', {
