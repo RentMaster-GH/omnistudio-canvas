@@ -10,7 +10,6 @@ import { SecondaryRibbon } from './components/toolbar/SecondaryRibbon';
 import { PageNavigator } from './components/sidebar/PageNavigator';
 import { LayersStack } from './components/sidebar/LayersStack';
 import { PropertyInspector } from './components/sidebar/PropertyInspector';
-import { CanvasViewport } from './components/viewport/CanvasViewport';
 import { useCanvasSocket } from './components/useCanvasSocket';
 import { SignatureModal } from './components/toolbar/SignatureModal';
 import { TimelineBar } from './components/timeline/TimelineBar';
@@ -73,7 +72,7 @@ const getFabricClass = (className: string): any => {
   return null;
 };
 
-// --- REACT ERROR BOUNDARY WITH DOM MUTATION RECOVERY ---
+// --- REACT ERROR BOUNDARY ---
 interface StudioErrorBoundaryProps {
   children?: React.ReactNode;
 }
@@ -94,12 +93,6 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Auto-recover from transient Fabric.js DOM textarea insertion conflicts
-    if (error.message && (error.message.includes('insertBefore') || error.message.includes('removeChild'))) {
-      console.warn('Auto-recovered from Fabric DOM mutation conflict:', error.message);
-      this.setState({ hasError: false, error: null });
-      return;
-    }
     console.error('Studio Error Boundary caught an error:', error, errorInfo);
   }
 
@@ -125,8 +118,7 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
 }
 
 function CanvasStudio() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const fabricCanvasRef = useRef<any>(null); // Synchronous Canvas Ref
+  const fabricCanvasRef = useRef<any>(null); // Synchronous Unmanaged Canvas Ref
 
   const [fabricCanvas, setFabricCanvas] = useState<any>(null);
   const [activePortal, setActivePortal] = useState<'pdf' | 'canvas' | 'video'>('pdf');
@@ -290,7 +282,7 @@ function CanvasStudio() {
       });
       targetCanvas.add(title, subtitle);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
       notifyUser('🚀 Loaded Sample OmniStudio Canvas Project');
     }
   };
@@ -314,7 +306,7 @@ function CanvasStudio() {
     if (RectClass) {
       activeObj.set({ clipPath: new RectClass({ width: activeObj.width * 0.8, height: activeObj.height * 0.8, originX: 'center', originY: 'center' }) });
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
       setIsCropModalOpen(false);
       notifyUser('✂️ Applied crop mask to selected canvas element!');
     }
@@ -336,7 +328,7 @@ function CanvasStudio() {
       targetCanvas.add(redactionBox);
       targetCanvas.setActiveObject(redactionBox);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
       setIsRedactionModalOpen(false);
       notifyUser('⬛ Redaction blackout shield added to canvas!');
     }
@@ -415,10 +407,8 @@ function CanvasStudio() {
           targetCanvas.sendToBack(fabricImg);
           targetCanvas.renderAll();
           
-          setTimeout(() => {
-            updateLayersList();
-            saveState(targetCanvas);
-          }, 50);
+          updateLayersList();
+          saveState(targetCanvas);
           notifyUser(`✅ Successfully Loaded PDF Page ${pageNumber} into Viewport Stage!`);
         } catch (innerErr: any) {
           console.error('Fabric Canvas Add Error:', innerErr);
@@ -532,7 +522,7 @@ function CanvasStudio() {
       });
 
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
       notifyUser(`✨ Converted ${extractedCount} PDF text elements into editable text nodes!`);
       alert(`✨ Converted ${extractedCount} text elements on Page ${pageNum} into editable text boxes! Click any text on the screen to edit it.`);
     } catch (err: any) {
@@ -587,7 +577,7 @@ function CanvasStudio() {
       targetCanvas.add(watermarkObj);
       targetCanvas.setActiveObject(watermarkObj);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
       notifyUser(`💧 Watermark "${text}" applied to target range: ${pageRange}`);
     }
   };
@@ -608,7 +598,7 @@ function CanvasStudio() {
           }
         }
         targetCanvas.renderAll();
-        setTimeout(() => saveState(targetCanvas), 50);
+        saveState(targetCanvas);
       }
     }
     notifyUser(`🎨 Applied Brand Swatch: ${hexColor}`);
@@ -669,7 +659,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ left: 20 });
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleAlignCenter = () => {
@@ -679,7 +669,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
     activeObj.centerH();
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleAlignRight = () => {
@@ -689,7 +679,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ left: targetCanvas.width - activeObj.width * (activeObj.scaleX || 1) - 20 });
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleAlignTop = () => {
@@ -699,7 +689,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ top: 20 });
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleAlignMiddle = () => {
@@ -709,7 +699,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to center it!'); return; }
     activeObj.centerV();
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleAlignBottom = () => {
@@ -719,7 +709,7 @@ function CanvasStudio() {
     if (!activeObj) { alert('Please select an object on the canvas first to align it!'); return; }
     activeObj.set({ top: targetCanvas.height - activeObj.height * (activeObj.scaleY || 1) - 20 });
     targetCanvas.renderAll();
-    setTimeout(() => saveState(targetCanvas), 50);
+    saveState(targetCanvas);
   };
 
   const handleGroupObjects = () => {
@@ -729,7 +719,7 @@ function CanvasStudio() {
     if (activeObj && activeObj.type === 'activeSelection') {
       activeObj.toGroup();
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     } else {
       alert('Please select multiple objects on canvas using Shift+Click to group them!');
     }
@@ -742,7 +732,7 @@ function CanvasStudio() {
     if (activeObj && activeObj.type === 'group') {
       activeObj.toActiveSelection();
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     } else {
       alert('Please select a grouped object on canvas to ungroup it!');
     }
@@ -798,10 +788,8 @@ function CanvasStudio() {
           targetCanvas.add(imgObj);
           targetCanvas.setActiveObject(imgObj);
           targetCanvas.renderAll();
-          setTimeout(() => {
-            updateLayersList();
-            saveState(targetCanvas);
-          }, 50);
+          updateLayersList();
+          saveState(targetCanvas);
         };
         img.src = contentUrlOrText;
       }
@@ -820,10 +808,8 @@ function CanvasStudio() {
         targetCanvas.add(textObj);
         targetCanvas.setActiveObject(textObj);
         targetCanvas.renderAll();
-        setTimeout(() => {
-          updateLayersList();
-          saveState(targetCanvas);
-        }, 50);
+        updateLayersList();
+        saveState(targetCanvas);
       }
     }
   };
@@ -847,7 +833,7 @@ function CanvasStudio() {
       targetCanvas.add(rect);
       targetCanvas.setActiveObject(rect);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -867,7 +853,7 @@ function CanvasStudio() {
       targetCanvas.add(circle);
       targetCanvas.setActiveObject(circle);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -888,7 +874,7 @@ function CanvasStudio() {
       targetCanvas.add(triangle);
       targetCanvas.setActiveObject(triangle);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -904,7 +890,7 @@ function CanvasStudio() {
       targetCanvas.add(line);
       targetCanvas.setActiveObject(line);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -955,7 +941,7 @@ function CanvasStudio() {
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -975,7 +961,7 @@ function CanvasStudio() {
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -1024,7 +1010,7 @@ function CanvasStudio() {
       targetCanvas.add(textObj);
       targetCanvas.setActiveObject(textObj);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
@@ -1041,10 +1027,8 @@ function CanvasStudio() {
         targetCanvas.add(imgObj);
         targetCanvas.setActiveObject(imgObj);
         targetCanvas.renderAll();
-        setTimeout(() => {
-          updateLayersList();
-          saveState(targetCanvas);
-        }, 50);
+        updateLayersList();
+        saveState(targetCanvas);
       };
       img.src = dataUrl;
     }
@@ -1065,11 +1049,10 @@ function CanvasStudio() {
       targetCanvas.add(stampGroup);
       targetCanvas.setActiveObject(stampGroup);
       targetCanvas.renderAll();
-      setTimeout(() => saveState(targetCanvas), 50);
+      saveState(targetCanvas);
     }
   };
 
-  // --- DEFERRED TEXT ADDITION ENGINE (PREVENTS REACT DOM INSERTBEFORE CONFLICTS) ---
   const addText = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -1089,17 +1072,13 @@ function CanvasStudio() {
     targetCanvas.add(text);
     targetCanvas.setActiveObject(text);
     targetCanvas.renderAll();
-
-    // Defer state updates so Fabric completes hidden textarea DOM injection first
-    setTimeout(() => {
-      updateLayersList();
-      saveState(targetCanvas);
-    }, 50);
+    saveState(targetCanvas);
   };
 
-  // --- INITIALIZE FABRIC CANVAS INSTANCE ---
+  // --- INITIALIZE UNMANAGED FABRIC CANVAS PORTAL ---
   useEffect(() => {
-    if (!canvasRef.current) return;
+    const canvasEl = document.getElementById('omni-fabric-canvas-node') as HTMLCanvasElement;
+    if (!canvasEl) return;
 
     const CanvasClass = getFabricClass('Canvas');
     if (!CanvasClass) {
@@ -1108,7 +1087,7 @@ function CanvasStudio() {
     }
 
     try {
-      const canvas = new CanvasClass(canvasRef.current, {
+      const canvas = new CanvasClass(canvasEl, {
         width: canvasWidth,
         height: canvasHeight,
         backgroundColor: '#ffffff',
@@ -1135,7 +1114,7 @@ function CanvasStudio() {
       setFabricCanvas(canvas);
       saveState(canvas);
 
-      console.log('✅ Fabric Canvas initialized successfully!');
+      console.log('✅ Unmanaged Fabric Canvas initialized successfully!');
 
       return () => {
         try {
@@ -1164,10 +1143,7 @@ function CanvasStudio() {
         targetObj: obj
       })).reverse();
 
-      // Defer React state update to avoid DOM reconciliation conflicts during Fabric DOM insertions
-      setTimeout(() => {
-        setCanvasLayers(simpleList);
-      }, 0);
+      setCanvasLayers(simpleList);
     } catch (err) {
       console.error('Error updating layers list:', err);
     }
@@ -1529,14 +1505,11 @@ function CanvasStudio() {
             </div>
           </div>
 
+          {/* UNMANAGED PORTAL CONTAINER - PREVENTS REACT INSERTBEFORE RECONCILIATION CONFLICTS */}
           <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden' }}>
-            <CanvasViewport 
-              canvasRef={canvasRef}
-              activeEditingObject={activeEditingObject}
-              exitTextEditing={exitTextEditing}
-              borderCol={borderCol}
-              fabricCanvas={fabricCanvasRef.current || fabricCanvas}
-              saveState={saveState}
+            <div 
+              style={{ position: 'relative', width: '100%', height: '100%' }}
+              dangerouslySetInnerHTML={{ __html: `<canvas id="omni-fabric-canvas-node"></canvas>` }}
             />
 
             <div
