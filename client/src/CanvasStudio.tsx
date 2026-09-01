@@ -296,7 +296,7 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE ---
+  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE WITH VISUAL AUTO-SELECT ---
   const handleStartLiveContentStreamEditing = async () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!pdfDoc || !targetCanvas) {
@@ -313,24 +313,22 @@ function CanvasStudio() {
 
       const stageW = canvasWidth || 1050;
       const stageH = canvasHeight || 650;
-      const scaleX = (stageW - 24) / viewport.width;
+      const scaleX = (stageW - 24) / unscaledViewportWidth(viewport);
       const scaleY = (stageH - 24) / viewport.height;
       const scale = Math.min(scaleX, scaleY);
 
       const ITextClass = getFabricClass('IText');
-      let extractedNodesCount = 0;
+      const extractedTextNodes: any[] = [];
 
       textContent.items.forEach((item: any) => {
         if (!item.str || !item.str.trim()) return;
 
-        // Extract Matrix transform operators [scaleX, skewX, skewY, scaleY, posX, posY]
         const tx = pdfjsLib.Util.transform(item.transform, viewport.transform);
         const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
 
         const posX = (tx[4] * scale) + (stageW - viewport.width * scale) / 2;
         const posY = (stageH - (tx[5] * scale)) - (fontHeight * scale);
 
-        // Map embedded PDF font name to matched web font family
         const fontName = mapPdfFontToWebFont(item.fontName);
         const calculatedFontSize = Math.max(12, Math.round(fontHeight * scale));
 
@@ -341,28 +339,42 @@ function CanvasStudio() {
             fontSize: calculatedFontSize,
             fontFamily: fontName,
             fill: textColorVal || '#0f172a',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)', // Seamless in-place blend
-            selectable: true,
-            editable: true,
-            padding: 2,
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: '#0284c7', // Bright blue border when selected
+            cornerColor: '#0284c7',
             cornerStyle: 'circle',
             cornerSize: 8,
+            transparentCorners: false,
+            selectable: true,
+            editable: true,
+            evented: true,
+            padding: 2,
           });
 
           targetCanvas.add(streamTextNode);
-          extractedNodesCount++;
+          streamTextNode.bringToFront();
+          extractedTextNodes.push(streamTextNode);
         }
       });
 
+      // Auto-select first extracted text block so blue handles show up on screen immediately
+      if (extractedTextNodes.length > 0) {
+        targetCanvas.setActiveObject(extractedTextNodes[0]);
+      }
+
       targetCanvas.renderAll();
+      updateLayersList();
       saveState(targetCanvas);
-      notifyUser(`⚡ In-Place Content Stream Active: Converted ${extractedNodesCount} stream operators with font metadata!`);
-      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedNodesCount} text stream operators from Page ${pageNum} with exact font mapping.\n\nClick any text on the screen to type, edit, or modify in-place! New keystrokes will blend in perfectly with the original layout.`);
+
+      notifyUser(`⚡ Stream Editor Active: ${extractedTextNodes.length} text blocks ready on screen!`);
+      alert(`⚡ Direct Stream Editor Active!\n\nSuccessfully converted ${extractedTextNodes.length} text lines into live editable text blocks!\n\nWe have automatically selected the first text block on your screen. Click on ANY text block on the canvas (or layer on the right side) to type and edit it immediately!`);
     } catch (err: any) {
       console.error('Content Stream Editing Error:', err);
       alert('Content Stream Extraction Error: ' + err.message);
     }
   };
+
+  const unscaledViewportWidth = (viewport: any) => viewport.width || 1050;
 
   // PRECISION ERASER ENGINE TOGGLE
   const handleTogglePrecisionEraser = () => {
