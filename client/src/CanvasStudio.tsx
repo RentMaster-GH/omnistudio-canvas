@@ -261,6 +261,65 @@ function CanvasStudio() {
     setTimelineSec(newTime);
   };
 
+  // --- NATIVE PDF VECTOR TEXT EXTRACTION & EDITING ENGINE ---
+  const handleExtractAndEditPdfText = async () => {
+    if (!pdfDoc || !fabricCanvas) {
+      alert('Please upload a PDF document first!');
+      return;
+    }
+
+    setStatus('🔍 Extracting vector text elements from PDF page...');
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const viewport = page.getViewport({ scale: 1.0 });
+
+      const stageW = canvasWidth || 1050;
+      const stageH = canvasHeight || 650;
+      const scaleX = (stageW - 24) / viewport.width;
+      const scaleY = (stageH - 24) / viewport.height;
+      const scale = Math.min(scaleX, scaleY);
+
+      const ITextClass = getFabricIText();
+      let extractedCount = 0;
+
+      textContent.items.forEach((item: any) => {
+        if (!item.str || !item.str.trim()) return;
+
+        // Extract PDF text coordinates and transform to canvas stage scale
+        const tx = pdfjsLib.Util.transform(item.transform, viewport.transform);
+        const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+
+        const posX = (tx[4] * scale) + (stageW - viewport.width * scale) / 2;
+        const posY = (stageH - (tx[5] * scale)) - (fontHeight * scale);
+
+        if (ITextClass) {
+          const editableText = new ITextClass(item.str, {
+            left: posX,
+            top: posY,
+            fontSize: Math.max(12, Math.round(fontHeight * scale)),
+            fontFamily: 'Arial',
+            fill: textColorVal || '#0f172a',
+            backgroundColor: 'rgba(255, 255, 255, 0.85)',
+            selectable: true,
+            editable: true,
+          });
+
+          fabricCanvas.add(editableText);
+          extractedCount++;
+        }
+      });
+
+      fabricCanvas.renderAll();
+      saveState();
+      setStatus(`✨ Converted ${extractedCount} PDF text elements into editable text nodes!`);
+      alert(`✨ Converted ${extractedCount} text elements on Page ${pageNum} into editable text boxes! Click any text on the screen to edit it.`);
+    } catch (err: any) {
+      console.error('PDF Text Extraction Error:', err);
+      alert('Could not extract text: ' + err.message);
+    }
+  };
+
   // --- ONE-TIME PAYMENT VERIFICATION HANDLER ---
   const handlePaymentSuccessUnlock = (reference: string) => {
     localStorage.setItem('omni_pro_unlocked', 'true');
@@ -503,18 +562,16 @@ function CanvasStudio() {
 
     if (type === 'image') {
       const ImageClass = getFabricImage();
-      if (ImageClass) {
-        if (ImageClass.fromURL.length >= 2) {
-          ImageClass.fromURL(contentUrlOrText, (imgObj: any) => {
-            if (!imgObj) return;
-            imgObj.scaleToWidth(180);
-            imgObj.set({ left: 250, top: 180 });
-            fabricCanvas.add(imgObj);
-            fabricCanvas.setActiveObject(imgObj);
-            fabricCanvas.renderAll();
-            saveState();
-          });
-        }
+      if (ImageClass && ImageClass.fromURL) {
+        ImageClass.fromURL(contentUrlOrText, (imgObj: any) => {
+          if (!imgObj) return;
+          imgObj.scaleToWidth(180);
+          imgObj.set({ left: 250, top: 180 });
+          fabricCanvas.add(imgObj);
+          fabricCanvas.setActiveObject(imgObj);
+          fabricCanvas.renderAll();
+          saveState();
+        });
       }
     } else if (type === 'template') {
       const ITextClass = getFabricIText();
@@ -893,7 +950,7 @@ function CanvasStudio() {
     fabricCanvas.isDrawingMode = mode === 'draw';
   };
 
-  // --- FABRIC.JS V5.3.0 COMPATIBLE PDF PAGE RENDER PIPELINE ---
+  // --- AUTOMATIC ASPECT-RATIO FIT PDF PAGE RENDER PIPELINE ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -907,7 +964,11 @@ function CanvasStudio() {
 
       fabricCanvas.setDimensions({ width: stageW, height: stageH });
 
-      let computedScale = (stageW - 24) / unscaledViewport.width;
+      // Calculate scale to fit BOTH width and height inside the canvas stage (with 24px padding)
+      const scaleX = (stageW - 24) / unscaledViewport.width;
+      const scaleY = (stageH - 24) / unscaledViewport.height;
+      const computedScale = Math.min(scaleX, scaleY);
+
       const viewport = page.getViewport({ scale: computedScale * highDpiScale });
 
       const tempCanvas = document.createElement('canvas');
@@ -921,7 +982,7 @@ function CanvasStudio() {
 
       const ImageClass = getFabricImage();
       if (ImageClass && ImageClass.fromURL) {
-        // Fabric.js v5.3.0 Callback Syntax
+        // Fabric.js v5.3.0 Asynchronous Callback Syntax
         ImageClass.fromURL(imgDataUrl, (imgObj: any) => {
           if (!imgObj || !fabricCanvas) return;
 
@@ -939,7 +1000,7 @@ function CanvasStudio() {
           activateToolMode('hand');
           fabricCanvas.renderAll();
           saveState(fabricCanvas);
-          setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages}`);
+          setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages} (Auto-Fit Stage)`);
         });
       }
     } catch (err: any) {
@@ -1089,8 +1150,30 @@ function CanvasStudio() {
       {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (TIER 3 - NON-OVERLAPPING RESPONSIVE HEADER BAR) */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px' }}>
         
-        {/* LEFT: QUICK LAUNCHERS (RECORDER & SOCIAL CHAT) */}
+        {/* LEFT: QUICK LAUNCHERS (RECORDER, SOCIAL CHAT & EDIT PDF TEXT) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <button
+            onClick={handleExtractAndEditPdfText}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#10b981',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
+              transition: 'all 0.15s ease'
+            }}
+            title="Convert all printed text on the current PDF page into editable text boxes"
+          >
+            ✍️ Edit PDF Text
+          </button>
+
           <button
             onClick={() => setIsUnlimitedRecorderOpen(true)}
             style={{
