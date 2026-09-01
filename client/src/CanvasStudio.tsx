@@ -27,6 +27,9 @@ import { WatermarkModal } from './components/toolbar/WatermarkModal';
 import { BrandPaletteHeader } from './components/toolbar/BrandPaletteHeader';
 import { PrecisionRuler } from './components/toolbar/PrecisionRuler';
 
+// Timed Paywall Modal Import
+import { TimedPaywallModal } from './components/toolbar/TimedPaywallModal';
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API_BASE = window.location.hostname === 'localhost'
@@ -113,9 +116,21 @@ function CanvasStudio() {
   const [, setRecentProjects] = useState<any[]>([]);
   const [, setShowProjectsModal] = useState(false);
 
-  // STEP 1: Manual Canvas Stage Resizing State (Default 1050x650)
+  // Manual Canvas Stage Resizing State (Default 1050x650)
   const [canvasWidth, setCanvasWidth] = useState(1050);
   const [canvasHeight, setCanvasHeight] = useState(650);
+
+  // --- DUAL-MODE MONETIZATION: 30-MINUTE TIMED PAYWALL STATE ---
+  const TIMER_DURATION_SEC = 1800; // 30 Minutes
+
+  const [isProUnlocked, setIsProUnlocked] = useState<boolean>(() => {
+    return localStorage.getItem('omni_pro_unlocked') === 'true';
+  });
+
+  const [freeTimeRemainingSec, setFreeTimeRemainingSec] = useState<number>(() => {
+    const savedTime = localStorage.getItem('omni_paywall_timer');
+    return savedTime !== null ? Number(savedTime) : TIMER_DURATION_SEC;
+  });
 
   // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -176,7 +191,32 @@ function CanvasStudio() {
   const isPanningRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  // STEP 1 CONT: Manual Canvas Resize Handler
+  // 30-Minute Free Access Countdown Timer Effect
+  useEffect(() => {
+    if (isProUnlocked) return;
+
+    const interval = setInterval(() => {
+      setFreeTimeRemainingSec((prev) => {
+        const nextTime = prev - 1;
+        if (nextTime <= 0) {
+          localStorage.setItem('omni_paywall_timer', '0');
+          return 0;
+        }
+        localStorage.setItem('omni_paywall_timer', String(nextTime));
+        return nextTime;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isProUnlocked]);
+
+  // Helper: Format Seconds => "29:45"
+  const formatCountdown = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
   const handleResizeCanvas = (newWidth: number, newHeight: number) => {
     const w = Math.max(320, Math.min(3000, Math.round(newWidth)));
     const h = Math.max(320, Math.min(3000, Math.round(newHeight)));
@@ -203,7 +243,7 @@ function CanvasStudio() {
   const handleApplyAdvancedWatermark = (
     text: string, 
     angle: number, 
-    opacity: number, // Float value (0.1 to 1.0)
+    opacity: number, 
     color: string, 
     pageRange: string
   ) => {
@@ -216,8 +256,8 @@ function CanvasStudio() {
         fontFamily: 'Arial',
         fontWeight: 'bold',
         fill: color,
-        opacity: opacity, // Applied directly as float
-        angle: angle,     // Diagonal rotation angle (-90 to +90)
+        opacity: opacity,
+        angle: angle,
         originX: 'center',
         originY: 'center',
         left: fabricCanvas.width / 2,
@@ -660,7 +700,6 @@ function CanvasStudio() {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) return;
 
-    // STEP 1 CONT: Synchronized state initialized stage size (1050px x 650px)
     const canvas = new CanvasClass(canvasRef.current, {
       width: canvasWidth,
       height: canvasHeight,
@@ -718,7 +757,6 @@ function CanvasStudio() {
     };
   }, [fabricCanvas]);
 
-  // STEP 1 CONT: Updated preset ratios to sync state handler
   const applyCanvasPresetRatio = (preset: string) => {
     if (!fabricCanvas) return;
 
@@ -733,11 +771,11 @@ function CanvasStudio() {
     handleResizeCanvas(width, height);
   };
 
-  // --- PAYSTACK INLINE POPUP CHECKOUT (ZERO BACKEND DEPENDENCY) ---
+  // --- PAYSTACK 50 GHS UNLOCK CHECKOUT (INLINE POPUP) ---
+  // Works for both Upfront Early Unlock & Post-30-Minute Expired Paywall Lock!
   const handlePaystackUpgrade = () => {
-    setStatus('⚡ Opening Paystack Checkout...');
+    setStatus('⚡ Opening Paystack Checkout for 50 GHS Lifetime Access...');
 
-    // 1. Inject Paystack Inline Popup Script if not already present
     if (!(window as any).PaystackPop) {
       const script = document.createElement('script');
       script.src = 'https://js.paystack.co/v1/inline.js';
@@ -750,22 +788,23 @@ function CanvasStudio() {
   };
 
   const triggerPaystackPopup = () => {
-    // Put your Paystack Public Key here (from Paystack Dashboard -> Settings -> API Keys)
     const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_1ce038da68ee109f5e603f5b816613d9cf261be5';
 
-    // Clean user ID and use valid TLD (.app / .com) to pass Paystack validator
     const cleanGuestId = guestUserId.replace(/[^a-zA-Z0-9]/g, '');
     const dummyEmail = `guest_${cleanGuestId}@omnistudio.app`;
 
     const handler = (window as any).PaystackPop.setup({
       key: PAYSTACK_PUBLIC_KEY,
       email: dummyEmail,
-      amount: 12000, // 120 GHS = 12,000 Pesewas (or 500000 Kobo for NGN)
-      currency: 'GHS', // Your primary merchant currency (GHS, NGN, or USD)
-      ref: `omni_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      amount: 5000, // 50 GHS = 5,000 Pesewas
+      currency: 'GHS',
+      ref: `omni_50ghs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       callback: (response: any) => {
-        setStatus('🎉 Payment successful! Ref: ' + response.reference);
-        alert('🎉 Payment successful! Thank you for upgrading to OmniStudio Pro.');
+        // Unlock Pro Access Permanently
+        localStorage.setItem('omni_pro_unlocked', 'true');
+        setIsProUnlocked(true);
+        setStatus('🎉 Payment Successful! Unlimited Access Unlocked Permanently. Ref: ' + response.reference);
+        alert('🎉 Payment Successful! Unlimited Studio Access is now permanently unlocked on your account.');
       },
       onClose: () => {
         setStatus('Ready - View Mode');
@@ -958,7 +997,7 @@ function CanvasStudio() {
         setDarkMode={setDarkMode}
       />
 
-      {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR */}
+      {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR & UPFRONT/TIMED PAYWALL HEADER BAR */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
@@ -995,6 +1034,51 @@ function CanvasStudio() {
           borderCol={borderCol}
         />
 
+        {/* ⏱️ DUAL-MODE PAYWALL: LIVE TIMER + OPTION A: UPFRONT 50 GHS UNLOCK BUTTON */}
+        {!isProUnlocked ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: freeTimeRemainingSec < 300 ? 'rgba(239, 68, 68, 0.2)' : '#0f172a',
+              padding: '4px 10px',
+              borderRadius: '6px',
+              border: freeTimeRemainingSec < 300 ? '1px solid #ef4444' : '1px solid #334155',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
+            }}>
+              <span>⏱️ Free Trial:</span>
+              <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
+            </div>
+
+            {/* UPFRONT PAYMENT BUTTON: Prevents the 30-minute block from activating */}
+            <button
+              onClick={handlePaystackUpgrade}
+              style={{
+                padding: '4px 12px',
+                backgroundColor: '#0284c7',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
+                transition: 'all 0.15s ease'
+              }}
+              title="Pay 50 GHS upfront to prevent 30-minute lock"
+            >
+              ⚡ Unlock Early (50 GHS)
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+            <span>🎉 Unlimited Access Unlocked</span>
+          </div>
+        )}
+
         {/* 🎨 BRAND SWATCHES HEADER TOOL */}
         <BrandPaletteHeader
           fabricCanvas={fabricCanvas}
@@ -1017,7 +1101,7 @@ function CanvasStudio() {
           borderCol={borderCol}
         />
 
-        {/* STEP 2: Center Canvas Viewport with Precision Ruler Overlay & Manual Resizer UI */}
+        {/* Center Canvas Viewport with Precision Ruler Overlay & Manual Resizer UI */}
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative' }}>
           
           {/* 📏 PRECISION RULER & MANUAL DIMENSION CONTROL BAR */}
@@ -1120,6 +1204,13 @@ function CanvasStudio() {
           />
         </div>
       </div>
+
+      {/* 🔒 OPTION B: 30-MINUTE EXPIRED PAYWALL LOCK MODAL (Triggers when free trial hits 0:00) */}
+      <TimedPaywallModal
+        isOpen={!isProUnlocked && freeTimeRemainingSec <= 0}
+        onUnlockPaystack={handlePaystackUpgrade}
+        formattedPrice="50 GHS"
+      />
 
       {/* 4. WATERMARK ENGINE MODAL (Integrated with totalPages & currentPage props) */}
       <WatermarkModal
