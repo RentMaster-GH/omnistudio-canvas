@@ -129,9 +129,9 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
 }
 
 function CanvasStudio() {
-  const fabricCanvasRef = useRef<any>(null); // Synchronous Unmanaged Canvas Ref
-  const cropRectRef = useRef<any>(null); // Interactive Crop Box Ref
-  const cropTargetObjRef = useRef<any>(null); // Active Target Being Cropped Ref
+  const fabricCanvasRef = useRef<any>(null);
+  const cropRectRef = useRef<any>(null);
+  const cropTargetObjRef = useRef<any>(null);
 
   const [fabricCanvas, setFabricCanvas] = useState<any>(null);
   const [activePortal, setActivePortal] = useState<'pdf' | 'canvas' | 'video'>('pdf');
@@ -162,8 +162,13 @@ function CanvasStudio() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
-  // REAL-TIME LIVE STREAMING TRANSCRIBER STATE
+  // MEDIA PLAYBACK MODAL STATE (FOR DOUBLE-CLICK PLAY)
+  const [playbackMediaUrl, setPlaybackMediaUrl] = useState<string | null>(null);
+  const [playbackMediaType, setPlaybackMediaType] = useState<'video' | 'audio'>('video');
+
+  // REAL-TIME MULTI-LANGUAGE LIVE STREAMING TRANSCRIBER STATE
   const [isLiveStreamingSpeech, setIsLiveStreamingSpeech] = useState(false);
+  const [selectedSpeechLang, setSelectedSpeechLang] = useState<string>('en-US');
   const speechRecognitionRef = useRef<any>(null);
 
   const [, setShowProjectsModal] = useState(false);
@@ -280,6 +285,7 @@ function CanvasStudio() {
     return () => clearInterval(interval);
   }, [isProUnlocked, isAppManager]);
 
+  // Recording Timer Effect
   useEffect(() => {
     let interval: any;
     if (isNativeRecording) {
@@ -289,6 +295,13 @@ function CanvasStudio() {
     }
     return () => clearInterval(interval);
   }, [isNativeRecording]);
+
+  // Camera Live Video Stream Preview Attachment Effect
+  useEffect(() => {
+    if (isNativeRecording && nativeRecordingType === 'video' && videoPreviewRef.current && mediaStreamRef.current) {
+      videoPreviewRef.current.srcObject = mediaStreamRef.current;
+    }
+  }, [isNativeRecording, nativeRecordingType]);
 
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -301,7 +314,210 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE ---
+  // --- HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE ---
+  const handleRequestHardwarePermissionsAndRecord = async (requestedType: 'video' | 'audio') => {
+    let type = requestedType;
+    let stream: MediaStream | null = null;
+
+    notifyUser(`🎥 Requesting ${type} hardware permission...`);
+
+    try {
+      if (type === 'video') {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (vErr: any) {
+          console.warn('Video+Audio request failed, attempting fallback...', vErr);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } catch (vOnlyErr) {
+            console.warn('Video-only failed, falling back to Audio Only:', vOnlyErr);
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            type = 'audio';
+          }
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      if (!stream) {
+        throw new Error('No active hardware media stream returned from device.');
+      }
+
+      mediaStreamRef.current = stream;
+      recordedChunksRef.current = [];
+
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(1000);
+      setIsNativeRecording(true);
+      setNativeRecordingType(type);
+      notifyUser(`🔴 In-App Native ${type.toUpperCase()} Recording Active!`);
+    } catch (err: any) {
+      console.error('Hardware Access Error:', err);
+
+      if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
+        alert(
+          '🔒 Camera/Microphone Permission Denied:\n\n' +
+          'Your browser is blocking camera or microphone access for this site.\n\n' +
+          'To fix this:\n' +
+          '1. Click the Lock 🔒 or Camera icon in your browser address bar (top left).\n' +
+          '2. Change Camera and Microphone settings to "Allow".\n' +
+          '3. Refresh the page and click Record again!'
+        );
+      } else if (err.name === 'NotFoundError') {
+        alert('📷 Hardware Not Found:\n\nNo camera or microphone hardware was detected. Please verify your device is plugged in.');
+      } else {
+        alert(`Hardware Access Error: ${err.message}`);
+      }
+      notifyUser('❌ Hardware permission denied');
+    }
+  };
+
+  const handleStopNativeRecordingAndEmbed = () => {
+    if (mediaRecorderRef.current && isNativeRecording) {
+      mediaRecorderRef.current.stop();
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      setIsNativeRecording(false);
+
+      setTimeout(() => {
+        const mimeType = nativeRecordingType === 'video' ? 'video/webm' : 'audio/webm';
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        const mediaUrl = URL.createObjectURL(blob);
+
+        const ITextClass = getFabricClass('IText');
+        const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+        if (ITextClass && targetCanvas) {
+          const cardText = new ITextClass(`🎬 In-App ${nativeRecordingType.toUpperCase()} Record Card\n⏱️ Duration: ${recordingSec}s\n▶️ Double-click to play video/audio`, {
+            left: 200,
+            top: 200,
+            fontSize: 16,
+            fontFamily: 'Arial',
+            fill: '#0284c7',
+            backgroundColor: '#f0f9ff',
+            padding: 12,
+            borderColor: '#0284c7',
+            cornerColor: '#0284c7',
+            cornerStyle: 'circle',
+            selectable: true,
+          });
+
+          // Attach media URL & type directly to Fabric object properties for double-click playback
+          (cardText as any).mediaUrl = mediaUrl;
+          (cardText as any).mediaType = nativeRecordingType;
+
+          targetCanvas.add(cardText);
+          targetCanvas.setActiveObject(cardText);
+          cardText.setCoords();
+          targetCanvas.renderAll();
+          saveState(targetCanvas);
+        }
+
+        alert(`🎉 Native In-App ${nativeRecordingType.toUpperCase()} recording saved! Double-click the embedded card on the canvas to play it anytime.`);
+        notifyUser('✅ Recorded media embedded to viewport stage!');
+      }, 500);
+    }
+  };
+
+  // --- REAL-TIME MULTI-LANGUAGE LIVE SPEECH STREAMER ---
+  const handleToggleLiveStreamingSpeech = () => {
+    if (isLiveStreamingSpeech) {
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
+      }
+      setIsLiveStreamingSpeech(false);
+      notifyUser('🎙️ Live speech streaming stopped.');
+      return;
+    }
+
+    const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechClass) {
+      alert('Live Speech Streaming is supported in Chrome, Edge, and Safari browsers.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = selectedSpeechLang; // Set selected target language
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        notifyUser(`⚡ Live Transcribing [${selectedSpeechLang}]: "${interimTranscript || finalTranscript}"`);
+
+        if (finalTranscript.trim()) {
+          const ITextClass = getFabricClass('IText');
+          const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+          if (ITextClass && targetCanvas) {
+            const liveText = new ITextClass(`🎙️ Live Stream (${selectedSpeechLang}):\n"${finalTranscript}"`, {
+              left: 180 + Math.random() * 40,
+              top: 180 + Math.random() * 40,
+              fontSize: 18,
+              fontFamily: 'Arial',
+              fill: '#0f172a',
+              backgroundColor: '#ffffff',
+              padding: 10,
+            });
+            targetCanvas.add(liveText);
+            liveText.setCoords();
+            targetCanvas.renderAll();
+            saveState(targetCanvas);
+          }
+        }
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+      setIsLiveStreamingSpeech(true);
+      notifyUser(`🎙️ Live Real-Time Transcriber Active [Language: ${selectedSpeechLang}] - Speak into mic!`);
+    } catch (err: any) {
+      alert('Could not start live speech stream: ' + err.message);
+    }
+  };
+
+  // --- FABRIC DOUBLE-CLICK MEDIA PLAYBACK EVENT LISTENER ---
+  useEffect(() => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    const handleCanvasDoubleClick = (e: any) => {
+      const target = e.target;
+      if (target && (target as any).mediaUrl) {
+        const url = (target as any).mediaUrl;
+        const type = (target as any).mediaType || 'video';
+        setPlaybackMediaUrl(url);
+        setPlaybackMediaType(type);
+        notifyUser(`▶️ Playing recorded ${type}...`);
+      }
+    };
+
+    targetCanvas.on('mouse:dblclick', handleCanvasDoubleClick);
+    return () => {
+      targetCanvas.off('mouse:dblclick', handleCanvasDoubleClick);
+    };
+  }, [fabricCanvas]);
+
+  // IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE
   const handleStartLiveContentStreamEditing = async () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!pdfDoc || !targetCanvas) {
@@ -376,14 +592,13 @@ function CanvasStudio() {
       setIsStreamEditingActive(true);
 
       notifyUser(`⚡ Stream Editor Active: ${extractedTextNodes.length} text blocks ready on screen!`);
-      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedTextNodes.length} text lines with font mapping.\n\nWe have automatically selected the first text block on screen. Click on ANY text block or click "Highlight All Text Blocks" to see all editable areas!`);
+      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedTextNodes.length} text lines with font mapping.\n\nWe have automatically selected the first text block on screen. Click any text block to type and edit!`);
     } catch (err: any) {
       console.error('Content Stream Editing Error:', err);
       alert('Content Stream Extraction Error: ' + err.message);
     }
   };
 
-  // --- GLOWING SKY-BLUE HIGHLIGHT TOGGLE ENGINE ---
   const handleToggleHighlightStreamNodes = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas || extractedStreamNodes.length === 0) return;
@@ -393,7 +608,6 @@ function CanvasStudio() {
 
     extractedStreamNodes.forEach((node) => {
       node.set({
-        // Glow bright sky blue when highlighted, return to white blend when off
         backgroundColor: nextState ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.95)',
         padding: nextState ? 4 : 2,
       });
@@ -470,178 +684,6 @@ function CanvasStudio() {
       targetCanvas.off('mouse:down', handleObjectClickErase);
     };
   }, [isEraserActive, eraserMode]);
-
-  // HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE
-  const handleRequestHardwarePermissionsAndRecord = async (requestedType: 'video' | 'audio') => {
-    let type = requestedType;
-    let stream: MediaStream | null = null;
-
-    notifyUser(`🎥 Requesting ${type} hardware permission...`);
-
-    try {
-      if (type === 'video') {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        } catch (vErr: any) {
-          console.warn('Video+Audio request failed, attempting fallback...', vErr);
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          } catch (vOnlyErr) {
-            console.warn('Video-only failed, falling back to Audio Only:', vOnlyErr);
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            type = 'audio';
-          }
-        }
-      } else {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-
-      if (!stream) {
-        throw new Error('No active hardware media stream returned from device.');
-      }
-
-      mediaStreamRef.current = stream;
-
-      if (type === 'video' && videoPreviewRef.current && stream.getVideoTracks().length > 0) {
-        videoPreviewRef.current.srcObject = stream;
-      }
-
-      recordedChunksRef.current = [];
-      const recorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          recordedChunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.start(1000);
-      setIsNativeRecording(true);
-      setNativeRecordingType(type);
-      notifyUser(`🔴 In-App Native ${type.toUpperCase()} Recording Active!`);
-    } catch (err: any) {
-      console.error('Hardware Access Error:', err);
-
-      if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-        alert(
-          '🔒 Camera/Microphone Permission Denied:\n\n' +
-          'Your browser is blocking camera or microphone access for this site.\n\n' +
-          'To fix this:\n' +
-          '1. Click the Lock 🔒 or Camera icon in your browser address bar (top left).\n' +
-          '2. Change Camera and Microphone settings to "Allow".\n' +
-          '3. Refresh the page and click Record again!'
-        );
-      } else if (err.name === 'NotFoundError') {
-        alert('📷 Hardware Not Found:\n\nNo camera or microphone hardware was detected. Please verify your device is plugged in.');
-      } else {
-        alert(`Hardware Access Error: ${err.message}`);
-      }
-      notifyUser('❌ Hardware permission denied');
-    }
-  };
-
-  const handleStopNativeRecordingAndEmbed = () => {
-    if (mediaRecorderRef.current && isNativeRecording) {
-      mediaRecorderRef.current.stop();
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-
-      setIsNativeRecording(false);
-
-      setTimeout(() => {
-        const ITextClass = getFabricClass('IText');
-        const targetCanvas = fabricCanvasRef.current || fabricCanvas;
-        if (ITextClass && targetCanvas) {
-          const cardText = new ITextClass(`🎬 In-App ${nativeRecordingType.toUpperCase()} Record Card\n⏱️ Duration: ${recordingSec}s\n🔗 Double click to play`, {
-            left: 200,
-            top: 200,
-            fontSize: 16,
-            fontFamily: 'Arial',
-            fill: '#0284c7',
-            backgroundColor: '#f0f9ff',
-            padding: 12,
-          });
-          targetCanvas.add(cardText);
-          targetCanvas.setActiveObject(cardText);
-          cardText.setCoords();
-          targetCanvas.renderAll();
-          saveState(targetCanvas);
-        }
-
-        alert(`🎉 Native In-App ${nativeRecordingType.toUpperCase()} recording saved and embedded onto canvas stage!`);
-        notifyUser('✅ Recorded media embedded to viewport stage!');
-      }, 500);
-    }
-  };
-
-  // REAL-TIME LIVE SPEECH STREAMER
-  const handleToggleLiveStreamingSpeech = () => {
-    if (isLiveStreamingSpeech) {
-      if (speechRecognitionRef.current) {
-        speechRecognitionRef.current.stop();
-      }
-      setIsLiveStreamingSpeech(false);
-      notifyUser('🎙️ Live speech streaming stopped.');
-      return;
-    }
-
-    const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechClass) {
-      alert('Live Speech Streaming is supported in Chrome, Edge, and Safari browsers.');
-      return;
-    }
-
-    try {
-      const recognition = new SpeechClass();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-
-        notifyUser(`⚡ Live Transcribing: "${interimTranscript || finalTranscript}"`);
-
-        if (finalTranscript.trim()) {
-          const ITextClass = getFabricClass('IText');
-          const targetCanvas = fabricCanvasRef.current || fabricCanvas;
-          if (ITextClass && targetCanvas) {
-            const liveText = new ITextClass(`🎙️ Live Stream:\n"${finalTranscript}"`, {
-              left: 180 + Math.random() * 40,
-              top: 180 + Math.random() * 40,
-              fontSize: 18,
-              fontFamily: 'Arial',
-              fill: '#0f172a',
-              backgroundColor: '#ffffff',
-              padding: 10,
-            });
-            targetCanvas.add(liveText);
-            liveText.setCoords();
-            targetCanvas.renderAll();
-            saveState(targetCanvas);
-          }
-        }
-      };
-
-      recognition.start();
-      speechRecognitionRef.current = recognition;
-      setIsLiveStreamingSpeech(true);
-      notifyUser('🎙️ Live Real-Time Speech Transcriber Active - Speak into mic!');
-    } catch (err: any) {
-      alert('Could not start live speech stream: ' + err.message);
-    }
-  };
 
   // DEVICE SECURITY PIN HANDLERS
   const handleCreateDevicePin = () => {
@@ -1924,7 +1966,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES MULTI-LANGUAGE SPEECH STREAM SELECTOR) */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
@@ -1977,13 +2019,34 @@ function CanvasStudio() {
             🎥 Camera/Mic Recorder
           </button>
 
-          <button
-            onClick={handleToggleLiveStreamingSpeech}
-            style={{ padding: '5px 12px', backgroundColor: isLiveStreamingSpeech ? '#ef4444' : '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
-            title="Stream speech in real time second-by-second directly onto canvas document"
-          >
-            {isLiveStreamingSpeech ? '⏹️ Stop Live Speech' : '🎙️ Live Speech Streamer'}
-          </button>
+          {/* REAL-TIME SPEECH TRANSCRIBER & LANGUAGE SELECTOR */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1e293b', padding: '2px 6px', borderRadius: '6px', border: '1px solid #334155' }}>
+            <select
+              value={selectedSpeechLang}
+              onChange={(e) => setSelectedSpeechLang(e.target.value)}
+              style={{ backgroundColor: '#0f172a', color: '#38bdf8', border: 'none', fontSize: '11px', fontWeight: 'bold', padding: '4px', borderRadius: '4px', cursor: 'pointer' }}
+              title="Select your spoken language for real-time live transcription"
+            >
+              <option value="en-US">🇺🇸 English (US)</option>
+              <option value="en-GB">🇬🇧 English (UK)</option>
+              <option value="fr-FR">🇫🇷 French</option>
+              <option value="es-ES">🇪🇸 Spanish</option>
+              <option value="de-DE">🇩🇪 German</option>
+              <option value="sw-KE">🇰🇪 Swahili</option>
+              <option value="ar-SA">🇸🇦 Arabic</option>
+              <option value="zh-CN">🇨🇳 Chinese</option>
+              <option value="pt-BR">🇧🇷 Portuguese</option>
+              <option value="hi-IN">🇮🇳 Hindi</option>
+            </select>
+
+            <button
+              onClick={handleToggleLiveStreamingSpeech}
+              style={{ padding: '4px 8px', backgroundColor: isLiveStreamingSpeech ? '#ef4444' : '#10b981', color: '#ffffff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', touchAction: 'manipulation' }}
+              title="Stream speech in real time second-by-second directly onto canvas document"
+            >
+              {isLiveStreamingSpeech ? '⏹️ Stop Stream' : '🎙️ Live Speech Streamer'}
+            </button>
+          </div>
 
           <button
             onClick={() => setIsPinSetupOpen(true)}
@@ -2129,7 +2192,7 @@ function CanvasStudio() {
           {isNativeRecording && (
             <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: '#0f172a', padding: '12px 20px', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '2px solid #ef4444' }}>
               {nativeRecordingType === 'video' && (
-                <video ref={videoPreviewRef} autoPlay muted style={{ width: '180px', height: '120px', borderRadius: '8px', backgroundColor: '#000', objectFit: 'cover' }} />
+                <video ref={videoPreviewRef} autoPlay muted playsInline style={{ width: '220px', height: '140px', borderRadius: '8px', backgroundColor: '#000', objectFit: 'cover' }} />
               )}
               <div style={{ color: '#ef4444', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 🔴 Recording Live: <span style={{ fontFamily: 'monospace' }}>{formatCountdown(recordingSec)}</span>
@@ -2295,6 +2358,27 @@ function CanvasStudio() {
                 💾 Save & Protect Device
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎬 NATIVE MEDIA PLAYBACK MODAL (FOR DOUBLE-CLICK PLAY) */}
+      {playbackMediaUrl && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 250, backgroundColor: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ backgroundColor: '#1e293b', border: '1px solid #38bdf8', borderRadius: '16px', padding: '24px', maxWidth: '540px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.7)', fontFamily: 'sans-serif', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '18px', color: '#38bdf8' }}>
+              ▶️ In-App Media Player ({playbackMediaType.toUpperCase()})
+            </h3>
+
+            {playbackMediaType === 'video' ? (
+              <video src={playbackMediaUrl} controls autoPlay style={{ width: '100%', maxHeight: '320px', borderRadius: '12px', backgroundColor: '#000' }} />
+            ) : (
+              <audio src={playbackMediaUrl} controls autoPlay style={{ width: '100%', marginTop: '12px' }} />
+            )}
+
+            <button onClick={() => setPlaybackMediaUrl(null)} style={{ padding: '10px 24px', backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+              ❌ Close Media Player
+            </button>
           </div>
         </div>
       )}
