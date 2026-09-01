@@ -123,9 +123,19 @@ function CanvasStudio() {
   const [, setRecentProjects] = useState<any[]>([]);
   const [, setShowProjectsModal] = useState(false);
 
-  // Manual Canvas Stage Resizing State (Default 1050x650)
-  const [canvasWidth, setCanvasWidth] = useState(1050);
-  const [canvasHeight, setCanvasHeight] = useState(650);
+  // Responsive Default Canvas Dimensions (Adapts to Mobile Screen Width if small viewport)
+  const [canvasWidth, setCanvasWidth] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return Math.max(320, window.innerWidth - 32);
+    }
+    return 1050;
+  });
+  const [canvasHeight, setCanvasHeight] = useState(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return Math.max(320, Math.round((window.innerWidth - 32) * (650 / 1050)));
+    }
+    return 650;
+  });
 
   // --- APP MANAGER (ADMIN) BYPASS CHECK ---
   const [isAppManager, setIsAppManager] = useState<boolean>(() => {
@@ -240,8 +250,8 @@ function CanvasStudio() {
   };
 
   const handleResizeCanvas = (newWidth: number, newHeight: number) => {
-    const w = Math.max(320, Math.min(3000, Math.round(newWidth)));
-    const h = Math.max(320, Math.min(3000, Math.round(newHeight)));
+    const w = Math.max(280, Math.min(3000, Math.round(newWidth)));
+    const h = Math.max(280, Math.min(3000, Math.round(newHeight)));
     setCanvasWidth(w);
     setCanvasHeight(h);
 
@@ -799,6 +809,7 @@ function CanvasStudio() {
     saveState();
   };
 
+  // --- INITIALIZE FABRIC CANVAS WITH MOBILE TOUCH SUPPORT ---
   useEffect(() => {
     const CanvasClass = getFabricCanvas();
     if (!CanvasClass) return;
@@ -810,6 +821,8 @@ function CanvasStudio() {
       defaultCursor: 'grab',
       renderOnAddRemove: true,
       skipTargetFind: false,
+      allowTouchScrolling: true, // Crucial for non-blocking mobile touches & gestures
+      enableRetinaScaling: true,
     });
 
     canvas.on('selection:created', (e: any) => {
@@ -1098,25 +1111,27 @@ function CanvasStudio() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: bgMain, color: textColor, boxSizing: 'border-box' }}>
       
-      {/* 1. TOP PORTAL SWITCHER & MAIN TOOLBAR */}
-      <MainToolbar 
-        activePortal={activePortal}
-        setActivePortal={setActivePortal}
-        loadSampleDemo={() => {}}
-        setShowProjectsModal={setShowProjectsModal}
-        exportCanvasImage={exportCanvasImage}
-        exportCompletePdf={exportCompletePdf}
-        exportMp4Video={exportMp4Video}
-        generateShareableProjectUrl={() => {}}
-        handlePaystackUpgrade={handlePaystackUpgrade}
-        onOpenAiSummaryModal={() => setIsAiSummaryModalOpen(true)}
-        onOpenMediaLibraryModal={() => setIsMediaLibraryOpen(true)}
-        darkMode={darkMode}
-        setDarkMode={setDarkMode}
-      />
+      {/* 1. TOP PORTAL SWITCHER & MAIN TOOLBAR (ISOLATED Z-INDEX TO ENSURE UNIMPEDED TOUCH RESPONSIVENESS) */}
+      <div style={{ position: 'relative', zIndex: 50, touchAction: 'manipulation' }}>
+        <MainToolbar 
+          activePortal={activePortal}
+          setActivePortal={setActivePortal}
+          loadSampleDemo={() => {}}
+          setShowProjectsModal={setShowProjectsModal}
+          exportCanvasImage={exportCanvasImage}
+          exportCompletePdf={exportCompletePdf}
+          exportMp4Video={exportMp4Video}
+          generateShareableProjectUrl={() => {}}
+          handlePaystackUpgrade={handlePaystackUpgrade}
+          onOpenAiSummaryModal={() => setIsAiSummaryModalOpen(true)}
+          onOpenMediaLibraryModal={() => setIsMediaLibraryOpen(true)}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+        />
+      </div>
 
-      {/* 2. SECONDARY TOOL RIBBON (TIER 2 - COMPACT NON-OVERLAPPING RIBBON) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+      {/* 2. SECONDARY TOOL RIBBON (TIER 2 - COMPACT NON-OVERLAPPING RIBBON WITH HIGH TOUCH STACKING) */}
+      <div style={{ position: 'relative', zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, overflowX: 'auto', whiteSpace: 'nowrap', touchAction: 'manipulation' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
           handleUndo={handleUndo}
@@ -1154,7 +1169,7 @@ function CanvasStudio() {
       </div>
 
       {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (TIER 3 - NON-OVERLAPPING RESPONSIVE HEADER BAR) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px' }}>
+      <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS (RECORDER, SOCIAL CHAT & EDIT PDF TEXT) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -1173,7 +1188,8 @@ function CanvasStudio() {
               alignItems: 'center',
               gap: '6px',
               boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
             }}
             title="Convert all printed text on the current PDF page into editable text boxes"
           >
@@ -1195,7 +1211,8 @@ function CanvasStudio() {
               alignItems: 'center',
               gap: '6px',
               boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
             }}
             title="Record Unlimited Audio or Video and Transcribe to Text"
           >
@@ -1217,7 +1234,8 @@ function CanvasStudio() {
               alignItems: 'center',
               gap: '6px',
               boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
-              transition: 'all 0.15s ease'
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
             }}
             title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
           >
@@ -1265,7 +1283,8 @@ function CanvasStudio() {
                   fontWeight: 'bold',
                   cursor: 'pointer',
                   boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
-                  transition: 'all 0.15s ease'
+                  transition: 'all 0.15s ease',
+                  touchAction: 'manipulation'
                 }}
                 title="Pay 50 GHS upfront to unlock permanent access"
               >
@@ -1284,8 +1303,8 @@ function CanvasStudio() {
         </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* 3. MAIN WORKSPACE WITH STRICT CONTAINER ISOLATION */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
         {/* PDF Sidebar Navigator */}
         <PageNavigator 
           thumbnails={thumbnails}
@@ -1300,7 +1319,7 @@ function CanvasStudio() {
         />
 
         {/* Center Canvas Viewport with Precision Ruler Overlay & Manual Resizer UI */}
-        <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative' }}>
+        <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
           {/* 📏 PRECISION RULER & MANUAL DIMENSION CONTROL BAR */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
@@ -1331,7 +1350,7 @@ function CanvasStudio() {
           </div>
 
           {/* CANVAS STAGE CONTAINER WITH INTERACTIVE CORNER RESIZE HANDLE */}
-          <div style={{ position: 'relative', display: 'inline-block' }}>
+          <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden' }}>
             <CanvasViewport 
               canvasRef={canvasRef}
               activeEditingObject={activeEditingObject}
@@ -1364,6 +1383,28 @@ function CanvasStudio() {
                 window.addEventListener('mousemove', onMouseMove);
                 window.addEventListener('mouseup', onMouseUp);
               }}
+              onTouchStart={(e) => {
+                const touch = e.touches[0];
+                const startX = touch.clientX;
+                const startY = touch.clientY;
+                const startW = canvasWidth;
+                const startH = canvasHeight;
+
+                const onTouchMove = (moveEvent: TouchEvent) => {
+                  const t = moveEvent.touches[0];
+                  const deltaX = t.clientX - startX;
+                  const deltaY = t.clientY - startY;
+                  handleResizeCanvas(startW + deltaX, startH + deltaY);
+                };
+
+                const onTouchEnd = () => {
+                  window.removeEventListener('touchmove', onTouchMove);
+                  window.removeEventListener('touchend', onTouchEnd);
+                };
+
+                window.addEventListener('touchmove', onTouchMove, { passive: true });
+                window.addEventListener('touchend', onTouchEnd);
+              }}
               style={{
                 position: 'absolute',
                 bottom: '-8px',
@@ -1376,6 +1417,7 @@ function CanvasStudio() {
                 cursor: 'nwse-resize',
                 zIndex: 40,
                 boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                touchAction: 'none'
               }}
               title="Click and drag to manually resize canvas screen"
             />
