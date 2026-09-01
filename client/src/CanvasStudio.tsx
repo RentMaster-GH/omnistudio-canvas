@@ -33,7 +33,7 @@ import { MomoCheckoutModal } from './components/toolbar/MomoCheckoutModal';
 // Unlimited Duration Recorder & AI Transcriber Modal Import
 import { UnlimitedStudioRecorderModal } from './components/toolbar/UnlimitedStudioRecorderModal';
 
-// 💬 Real-Time Social Chat & P2P Voice/Video Calls Modal Import
+// Real-Time Social Chat & P2P Voice/Video Calls Modal Import
 import { SocialMessengerModal } from './components/social/SocialMessengerModal';
 
 // Robust PDF.js Worker CDN Definition for Production Deployments
@@ -142,6 +142,12 @@ function CanvasStudio() {
   const [activeEditingObject, setActiveEditingObject] = useState<any>(null);
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
   const [isCroppingActive, setIsCroppingActive] = useState(false);
+
+  // 📐 PINCH-TO-ZOOM & VIEWPORT ZOOM/PAN STATE
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+
+  // 🎬 COLLAPSIBLE TIMELINE BAR STATE (DEFAULT COLLAPSED FOR FULL PAGE PDF VIEW)
+  const [isTimelineCollapsed, setIsTimelineCollapsed] = useState<boolean>(true);
 
   // DIRECT CONTENT STREAM EDITOR STATE
   const [isStreamEditingActive, setIsStreamEditingActive] = useState(false);
@@ -312,6 +318,24 @@ function CanvasStudio() {
   const notifyUser = (msg: string) => {
     setStatusMessage(msg);
     console.log('📌 OmniStudio Status:', msg);
+  };
+
+  // --- PINCH-TO-ZOOM & PAN CONTROLS ---
+  const handleZoomChange = (newZoom: number) => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+    const clampedZoom = Math.min(Math.max(0.2, newZoom), 5);
+    const center = targetCanvas.getCenter();
+    targetCanvas.zoomToPoint({ x: center.left, y: center.top }, clampedZoom);
+    setZoomLevel(clampedZoom);
+  };
+
+  const handleResetZoomPan = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+    targetCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    setZoomLevel(1);
+    notifyUser('🔎 Reset zoom & viewport alignment');
   };
 
   // --- HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE ---
@@ -1692,7 +1716,7 @@ function CanvasStudio() {
     saveState(targetCanvas);
   };
 
-  // --- INITIALIZE UNMANAGED FABRIC CANVAS PORTAL ---
+  // --- INITIALIZE UNMANAGED FABRIC CANVAS & PINCH-TO-ZOOM LISTENERS ---
   useEffect(() => {
     const canvasEl = document.getElementById('omni-fabric-canvas-node') as HTMLCanvasElement;
     if (!canvasEl) return;
@@ -1711,7 +1735,7 @@ function CanvasStudio() {
         defaultCursor: 'grab',
         renderOnAddRemove: true,
         skipTargetFind: false,
-        allowTouchScrolling: true,
+        allowTouchScrolling: false, // Turned off to capture pinch gestures cleanly
         enableRetinaScaling: true,
       });
 
@@ -1727,14 +1751,118 @@ function CanvasStudio() {
 
       canvas.on('selection:cleared', () => setActiveEditingObject(null));
 
+      // 🔍 MOUSE WHEEL ZOOM & TOUCHPAD PINCH
+      canvas.on('mouse:wheel', (opt: any) => {
+        const delta = opt.e.deltaY;
+        let zoom = canvas.getZoom();
+        zoom *= 0.999 ** delta;
+        zoom = Math.min(Math.max(0.2, zoom), 5); // Clamped between 20% and 500%
+        
+        const offsetX = opt.e.offsetX ?? opt.e.layerX ?? canvas.width / 2;
+        const offsetY = opt.e.offsetY ?? opt.e.layerY ?? canvas.height / 2;
+        
+        canvas.zoomToPoint({ x: offsetX, y: offsetY }, zoom);
+        setZoomLevel(zoom);
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+      });
+
+      // 🖐️ CANVAS DRAG / PANNING LOGIC
+      let isPanning = false;
+      let lastPosX = 0;
+      let lastPosY = 0;
+
+      canvas.on('mouse:down', (opt: any) => {
+        const evt = opt.e;
+        if (evt.altKey || opt.target === null || activeTool === 'hand') {
+          isPanning = true;
+          canvas.selection = false;
+          lastPosX = evt.clientX || evt.touches?.[0]?.clientX || 0;
+          lastPosY = evt.clientY || evt.touches?.[0]?.clientY || 0;
+        }
+      });
+
+      canvas.on('mouse:move', (opt: any) => {
+        if (isPanning) {
+          const evt = opt.e;
+          const clientX = evt.clientX || evt.touches?.[0]?.clientX || 0;
+          const clientY = evt.clientY || evt.touches?.[0]?.clientY || 0;
+          
+          const vpt = canvas.viewportTransform;
+          if (vpt) {
+            vpt[4] += clientX - lastPosX;
+            vpt[5] += clientY - lastPosY;
+            canvas.requestRenderAll();
+          }
+          lastPosX = clientX;
+          lastPosY = clientY;
+        }
+      });
+
+      canvas.on('mouse:up', () => {
+        if (canvas.viewportTransform) {
+          canvas.setViewportTransform(canvas.viewportTransform);
+        }
+        isPanning = false;
+        canvas.selection = true;
+      });
+
+      // 📱 MOBILE TOUCH PINCH-TO-ZOOM LISTENERS
+      const upperCanvasEl = canvas.upperCanvasEl || canvasEl;
+      let touchStartDist = 0;
+      let initialZoom = 1;
+
+      const handleTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          touchStartDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          initialZoom = canvas.getZoom();
+        }
+      };
+
+      const handleTouchMove = (e: TouchEvent) => {
+        if (e.touches.length === 2 && touchStartDist > 0) {
+          e.preventDefault();
+          const currentDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const scale = currentDist / touchStartDist;
+          let newZoom = initialZoom * scale;
+          newZoom = Math.min(Math.max(0.2, newZoom), 5);
+
+          const rect = upperCanvasEl.getBoundingClientRect();
+          const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+          const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+
+          canvas.zoomToPoint({ x: midX, y: midY }, newZoom);
+          setZoomLevel(newZoom);
+        }
+      };
+
+      const handleTouchEnd = (e: TouchEvent) => {
+        if (e.touches.length < 2) {
+          touchStartDist = 0;
+        }
+      };
+
+      upperCanvasEl.addEventListener('touchstart', handleTouchStart, { passive: false });
+      upperCanvasEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+      upperCanvasEl.addEventListener('touchend', handleTouchEnd);
+
       fabricCanvasRef.current = canvas;
       setFabricCanvas(canvas);
       saveState(canvas);
 
-      console.log('✅ Unmanaged Fabric Canvas initialized successfully!');
+      console.log('✅ Fabric Canvas with Touch Pinch-to-Zoom initialized!');
 
       return () => {
         try {
+          upperCanvasEl.removeEventListener('touchstart', handleTouchStart);
+          upperCanvasEl.removeEventListener('touchmove', handleTouchMove);
+          upperCanvasEl.removeEventListener('touchend', handleTouchEnd);
           canvas.dispose();
           fabricCanvasRef.current = null;
         } catch (e) {
@@ -1830,15 +1958,6 @@ function CanvasStudio() {
     setRedoStack(newRedoStack);
 
     targetCanvas.loadFromJSON(nextCanvasJson, () => targetCanvas.renderAll());
-  };
-
-  const exitTextEditing = () => {
-    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
-    if (!targetCanvas) return;
-    const activeObj = targetCanvas.getActiveObject();
-    if (activeObj && activeObj.isEditing) activeObj.exitEditing();
-    setActiveEditingObject(null);
-    targetCanvas.renderAll();
   };
 
   const activateToolMode = (mode: string) => {
@@ -2236,6 +2355,37 @@ function CanvasStudio() {
               onToggle={setIsRulerActive}
             />
 
+            {/* 🔎 FLOATING VIEWPORT ZOOM CONTROLS (PINCH-TO-ZOOM QUICK HUD) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1e293b', padding: '4px 8px', borderRadius: '8px', border: '1px solid #334155' }}>
+              <button
+                onClick={() => handleZoomChange(zoomLevel - 0.15)}
+                style={{ backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', borderRadius: '4px', padding: '2px 8px', fontWeight: 'bold', cursor: 'pointer' }}
+                title="Zoom Out (-)"
+              >
+                -
+              </button>
+              
+              <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold', minWidth: '45px', textAlign: 'center', fontFamily: 'monospace' }}>
+                {Math.round(zoomLevel * 100)}%
+              </span>
+
+              <button
+                onClick={() => handleZoomChange(zoomLevel + 0.15)}
+                style={{ backgroundColor: '#0f172a', color: '#fff', border: '1px solid #334155', borderRadius: '4px', padding: '2px 8px', fontWeight: 'bold', cursor: 'pointer' }}
+                title="Zoom In (+)"
+              >
+                +
+              </button>
+
+              <button
+                onClick={handleResetZoomPan}
+                style={{ backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', marginLeft: '4px' }}
+                title="Reset Zoom to 100%"
+              >
+                100% Reset
+              </button>
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#1e293b', padding: '4px 10px', borderRadius: '8px', border: '1px solid #334155', fontSize: '11px', color: '#94a3b8' }}>
               <span>Stage:</span>
               <input
@@ -2504,15 +2654,47 @@ function CanvasStudio() {
         bgBar={bgBar}
       />
 
-      <TimelineBar 
-        isPlaying={isPlaying}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
-        currentTime={timelineSec}
-        duration={videoDuration}
-        onSeek={(t) => setTimelineSec(t)}
-        borderCol={borderCol}
-        bgBar={bgBar}
-      />
+      {/* 🎬 COLLAPSIBLE TIMELINE BAR PANEL */}
+      <div style={{ position: 'relative', borderTop: `1px solid ${borderCol}`, backgroundColor: bgBar }}>
+        
+        {/* COLLAPSE/EXPAND TOGGLE HANDLE */}
+        <div
+          onClick={() => setIsTimelineCollapsed(!isTimelineCollapsed)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justify: 'space-between',
+            padding: '4px 16px',
+            backgroundColor: darkMode ? '#0f172a' : '#cbd5e1',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 'bold',
+            color: isTimelineCollapsed ? '#38bdf8' : '#94a3b8',
+            userSelect: 'none',
+            borderTop: `1px solid ${borderCol}`
+          }}
+          title="Click to collapse or expand timeline video/audio track bar"
+        >
+          <span>🎬 Media Timeline & Tracks Control</span>
+          <span>
+            {isTimelineCollapsed ? '▲ Expand Timeline' : '▼ Collapse (Full Page View Mode)'}
+          </span>
+        </div>
+
+        {/* TIMELINE CONTENT (SHOWS ONLY WHEN EXPANDED) */}
+        {!isTimelineCollapsed && (
+          <TimelineBar 
+            isPlaying={isPlaying}
+            onTogglePlay={() => setIsPlaying(!isPlaying)}
+            currentTime={timelineSec}
+            duration={videoDuration}
+            onSeek={(t) => setTimelineSec(t)}
+            borderCol={borderCol}
+            bgBar={bgBar}
+          />
+        )}
+      </div>
+
     </div>
   );
 }
