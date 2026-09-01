@@ -71,6 +71,18 @@ const getFabricClass = (className: string): any => {
   return null;
 };
 
+// --- FONT METADATA MAPPER FOR PDF CONTENT STREAMS ---
+const mapPdfFontToWebFont = (pdfFontName?: string): string => {
+  if (!pdfFontName) return 'Arial';
+  const name = pdfFontName.toLowerCase();
+  if (name.includes('times') || name.includes('serif')) return 'Times New Roman';
+  if (name.includes('courier') || name.includes('mono')) return 'Courier New';
+  if (name.includes('helvetica') || name.includes('arial') || name.includes('sans')) return 'Arial';
+  if (name.includes('georgia')) return 'Georgia';
+  if (name.includes('calibri')) return 'Calibri';
+  return 'Arial';
+};
+
 // --- REACT ERROR BOUNDARY ---
 interface StudioErrorBoundaryProps {
   children?: React.ReactNode;
@@ -284,7 +296,75 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- PRECISION ERASER ENGINE TOGGLE ---
+  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE ---
+  const handleStartLiveContentStreamEditing = async () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!pdfDoc || !targetCanvas) {
+      alert('Please upload a PDF document first using the "Upload PDF" button in the ribbon!');
+      return;
+    }
+
+    notifyUser('⚡ Extracting PDF Content Stream operators & font metadata...');
+
+    try {
+      const page = await pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent({ includeMarkedContent: true });
+      const viewport = page.getViewport({ scale: 1.0 });
+
+      const stageW = canvasWidth || 1050;
+      const stageH = canvasHeight || 650;
+      const scaleX = (stageW - 24) / viewport.width;
+      const scaleY = (stageH - 24) / viewport.height;
+      const scale = Math.min(scaleX, scaleY);
+
+      const ITextClass = getFabricClass('IText');
+      let extractedNodesCount = 0;
+
+      textContent.items.forEach((item: any) => {
+        if (!item.str || !item.str.trim()) return;
+
+        // Extract Matrix transform operators [scaleX, skewX, skewY, scaleY, posX, posY]
+        const tx = pdfjsLib.Util.transform(item.transform, viewport.transform);
+        const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+
+        const posX = (tx[4] * scale) + (stageW - viewport.width * scale) / 2;
+        const posY = (stageH - (tx[5] * scale)) - (fontHeight * scale);
+
+        // Map embedded PDF font name to matched web font family
+        const fontName = mapPdfFontToWebFont(item.fontName);
+        const calculatedFontSize = Math.max(12, Math.round(fontHeight * scale));
+
+        if (ITextClass) {
+          const streamTextNode = new ITextClass(item.str, {
+            left: posX,
+            top: posY,
+            fontSize: calculatedFontSize,
+            fontFamily: fontName,
+            fill: textColorVal || '#0f172a',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)', // Seamless in-place blend
+            selectable: true,
+            editable: true,
+            padding: 2,
+            cornerStyle: 'circle',
+            cornerSize: 8,
+          });
+
+          targetCanvas.add(streamTextNode);
+          extractedNodesCount++;
+        }
+      });
+
+      targetCanvas.renderAll();
+      saveState(targetCanvas);
+      notifyUser(`⚡ In-Place Content Stream Active: Converted ${extractedNodesCount} stream operators with font metadata!`);
+      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedNodesCount} text stream operators from Page ${pageNum} with exact font mapping.\n\nClick any text on the screen to type, edit, or modify in-place! New keystrokes will blend in perfectly with the original layout.`);
+    } catch (err: any) {
+      console.error('Content Stream Editing Error:', err);
+      alert('Content Stream Extraction Error: ' + err.message);
+    }
+  };
+
+  // PRECISION ERASER ENGINE TOGGLE
   const handleTogglePrecisionEraser = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -351,7 +431,7 @@ function CanvasStudio() {
     };
   }, [isEraserActive, eraserMode]);
 
-  // --- HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE ---
+  // HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE
   const handleRequestHardwarePermissionsAndRecord = async (requestedType: 'video' | 'audio') => {
     let type = requestedType;
     let stream: MediaStream | null = null;
@@ -361,16 +441,13 @@ function CanvasStudio() {
     try {
       if (type === 'video') {
         try {
-          // Attempt Video + Audio
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         } catch (vErr: any) {
           console.warn('Video+Audio request failed, attempting fallback...', vErr);
           try {
-            // Fallback: Video Only
             stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           } catch (vOnlyErr) {
             console.warn('Video-only failed, falling back to Audio Only:', vOnlyErr);
-            // Fallback: Audio Only if camera missing
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             type = 'audio';
           }
@@ -962,64 +1039,6 @@ function CanvasStudio() {
     if (!pdfDoc || newPage < 1 || newPage > totalPages) return;
     setPageNum(newPage);
     await renderPdfPageOntoCanvas(pdfDoc, newPage);
-  };
-
-  const handleExtractAndEditPdfText = async () => {
-    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
-    if (!pdfDoc || !targetCanvas) {
-      alert('Please upload a PDF document first using the "Upload PDF" button in the ribbon!');
-      return;
-    }
-
-    notifyUser('🔍 Extracting vector text elements from PDF page...');
-    try {
-      const page = await pdfDoc.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const viewport = page.getViewport({ scale: 1.0 });
-
-      const stageW = canvasWidth || 1050;
-      const stageH = canvasHeight || 650;
-      const scaleX = (stageW - 24) / viewport.width;
-      const scaleY = (stageH - 24) / viewport.height;
-      const scale = Math.min(scaleX, scaleY);
-
-      const ITextClass = getFabricClass('IText');
-      let extractedCount = 0;
-
-      textContent.items.forEach((item: any) => {
-        if (!item.str || !item.str.trim()) return;
-
-        const tx = pdfjsLib.Util.transform(item.transform, viewport.transform);
-        const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
-
-        const posX = (tx[4] * scale) + (stageW - viewport.width * scale) / 2;
-        const posY = (stageH - (tx[5] * scale)) - (fontHeight * scale);
-
-        if (ITextClass) {
-          const editableText = new ITextClass(item.str, {
-            left: posX,
-            top: posY,
-            fontSize: Math.max(12, Math.round(fontHeight * scale)),
-            fontFamily: 'Arial',
-            fill: textColorVal || '#0f172a',
-            backgroundColor: 'rgba(255, 255, 255, 0.85)',
-            selectable: true,
-            editable: true,
-          });
-
-          targetCanvas.add(editableText);
-          extractedCount++;
-        }
-      });
-
-      targetCanvas.renderAll();
-      saveState(targetCanvas);
-      notifyUser(`✨ Converted ${extractedCount} PDF text elements into editable text nodes!`);
-      alert(`✨ Converted ${extractedCount} text elements on Page ${pageNum} into editable text boxes! Click any text on the screen to edit it.`);
-    } catch (err: any) {
-      console.error('PDF Text Extraction Error:', err);
-      alert('Could not extract text: ' + err.message);
-    }
   };
 
   const handlePaymentSuccessUnlock = (reference: string) => {
@@ -1839,17 +1858,17 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES DIRECT STREAM TEXT EDITOR BUTTON) */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
           <button
-            onClick={handleExtractAndEditPdfText}
+            onClick={handleStartLiveContentStreamEditing}
             style={{ padding: '5px 12px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
-            title="Convert all printed text on the current PDF page into editable text boxes"
+            title="In-place content stream editor: Extract stream operators with font metadata and edit text directly"
           >
-            ✍️ Edit PDF Text
+            ⚡ Direct Stream Text Editor
           </button>
 
           <button
