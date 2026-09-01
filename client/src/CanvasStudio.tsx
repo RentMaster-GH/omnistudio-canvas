@@ -133,7 +133,7 @@ function CanvasStudio() {
 
   // PRECISION ERASER ENGINE STATE
   const [isEraserActive, setIsEraserActive] = useState(false);
-  const [eraserSize, setEraserSize] = useState<number>(8); // Pinpoint 8px default
+  const [eraserSize, setEraserSize] = useState<number>(8);
   const [eraserMode, setEraserMode] = useState<'precision' | 'object'>('precision');
 
   // IN-APP NATIVE RECORDING STATE
@@ -306,7 +306,7 @@ function CanvasStudio() {
       if (PencilBrushClass) {
         const eraserBrush = new PencilBrushClass(targetCanvas);
         eraserBrush.width = eraserSize;
-        eraserBrush.color = '#ffffff'; // Color-matched seamless whiteout mask
+        eraserBrush.color = '#ffffff';
         eraserBrush.strokeLineCap = 'round';
         eraserBrush.strokeLineJoin = 'round';
         targetCanvas.freeDrawingBrush = eraserBrush;
@@ -319,7 +319,6 @@ function CanvasStudio() {
     }
   };
 
-  // Update Brush Size Dynamically for Precision Eraser
   useEffect(() => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (isEraserActive && targetCanvas && eraserMode === 'precision' && targetCanvas.freeDrawingBrush) {
@@ -328,7 +327,6 @@ function CanvasStudio() {
     }
   }, [eraserSize, eraserMode, isEraserActive]);
 
-  // Object / Element Click Eraser Handler
   useEffect(() => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -353,15 +351,41 @@ function CanvasStudio() {
     };
   }, [isEraserActive, eraserMode]);
 
-  // IN-APP NATIVE RECORDING ENGINE
-  const handleRequestHardwarePermissionsAndRecord = async (type: 'video' | 'audio') => {
+  // --- HARDWARE RESILIENT IN-APP NATIVE RECORDING ENGINE ---
+  const handleRequestHardwarePermissionsAndRecord = async (requestedType: 'video' | 'audio') => {
+    let type = requestedType;
+    let stream: MediaStream | null = null;
+
+    notifyUser(`🎥 Requesting ${type} hardware permission...`);
+
     try {
-      notifyUser(`🎥 Requesting ${type} hardware permission...`);
-      const constraints = type === 'video' ? { video: true, audio: true } : { audio: true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (type === 'video') {
+        try {
+          // Attempt Video + Audio
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (vErr: any) {
+          console.warn('Video+Audio request failed, attempting fallback...', vErr);
+          try {
+            // Fallback: Video Only
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          } catch (vOnlyErr) {
+            console.warn('Video-only failed, falling back to Audio Only:', vOnlyErr);
+            // Fallback: Audio Only if camera missing
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            type = 'audio';
+          }
+        }
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      if (!stream) {
+        throw new Error('No active hardware media stream returned from device.');
+      }
+
       mediaStreamRef.current = stream;
 
-      if (type === 'video' && videoPreviewRef.current) {
+      if (type === 'video' && videoPreviewRef.current && stream.getVideoTracks().length > 0) {
         videoPreviewRef.current.srcObject = stream;
       }
 
@@ -380,7 +404,22 @@ function CanvasStudio() {
       setNativeRecordingType(type);
       notifyUser(`🔴 In-App Native ${type.toUpperCase()} Recording Active!`);
     } catch (err: any) {
-      alert(`Hardware Access Error: Could not connect to camera/mic. ${err.message}`);
+      console.error('Hardware Access Error:', err);
+
+      if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
+        alert(
+          '🔒 Camera/Microphone Permission Denied:\n\n' +
+          'Your browser is blocking camera or microphone access for this site.\n\n' +
+          'To fix this:\n' +
+          '1. Click the Lock 🔒 or Camera icon in your browser address bar (top left).\n' +
+          '2. Change Camera and Microphone settings to "Allow".\n' +
+          '3. Refresh the page and click Record again!'
+        );
+      } else if (err.name === 'NotFoundError') {
+        alert('📷 Hardware Not Found:\n\nNo camera or microphone hardware was detected. Please verify your device is plugged in.');
+      } else {
+        alert(`Hardware Access Error: ${err.message}`);
+      }
       notifyUser('❌ Hardware permission denied');
     }
   };
@@ -1800,7 +1839,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES PRECISION ERASER BUTTON) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
