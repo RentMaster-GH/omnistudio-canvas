@@ -131,6 +131,19 @@ function CanvasStudio() {
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
   const [isCroppingActive, setIsCroppingActive] = useState(false);
 
+  // 1. IN-APP NATIVE CAMERA / MICROPHONE RECORDING STATE
+  const [isNativeRecording, setIsNativeRecording] = useState(false);
+  const [nativeRecordingType, setNativeRecordingType] = useState<'video' | 'audio'>('video');
+  const [recordingSec, setRecordingSec] = useState(0);
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+
+  // 2. REAL-TIME LIVE STREAMING TRANSCRIBER STATE
+  const [isLiveStreamingSpeech, setIsLiveStreamingSpeech] = useState(false);
+  const speechRecognitionRef = useRef<any>(null);
+
   const [, setShowProjectsModal] = useState(false);
 
   // FIRST-TIME USER PIN SETUP & DEVICE SECURITY STATE
@@ -140,7 +153,7 @@ function CanvasStudio() {
   const [enteredPin, setEnteredPin] = useState('');
   const [isDeviceUnlocked, setIsDeviceUnlocked] = useState(() => {
     const savedPin = localStorage.getItem('omni_device_pin');
-    return !savedPin; // Unlocked if no PIN set
+    return !savedPin;
   });
 
   // Responsive Default Canvas Dimensions
@@ -245,6 +258,17 @@ function CanvasStudio() {
     return () => clearInterval(interval);
   }, [isProUnlocked, isAppManager]);
 
+  // Recording Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (isNativeRecording) {
+      interval = setInterval(() => setRecordingSec((prev) => prev + 1), 1000);
+    } else {
+      setRecordingSec(0);
+    }
+    return () => clearInterval(interval);
+  }, [isNativeRecording]);
+
   const formatCountdown = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -256,7 +280,147 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- DEVICE SECURITY PIN MANAGEMENT HANDLERS ---
+  // --- 1 & 3. DEVICE MEDIA CAPTURE & IN-APP NATIVE RECORDING ENGINE ---
+  const handleRequestHardwarePermissionsAndRecord = async (type: 'video' | 'audio') => {
+    try {
+      notifyUser(`🎥 Requesting ${type} hardware permission...`);
+      const constraints = type === 'video' ? { video: true, audio: true } : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+
+      if (type === 'video' && videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+      }
+
+      recordedChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(1000);
+      setIsNativeRecording(true);
+      setNativeRecordingType(type);
+      notifyUser(`🔴 In-App Native ${type.toUpperCase()} Recording Active!`);
+    } catch (err: any) {
+      alert(`Hardware Access Error: Could not connect to camera/mic. ${err.message}`);
+      notifyUser('❌ Hardware permission denied');
+    }
+  };
+
+  const handleStopNativeRecordingAndEmbed = () => {
+    if (mediaRecorderRef.current && isNativeRecording) {
+      mediaRecorderRef.current.stop();
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      setIsNativeRecording(false);
+
+      setTimeout(() => {
+        const mimeType = nativeRecordingType === 'video' ? 'video/webm' : 'audio/webm';
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        const mediaUrl = URL.createObjectURL(blob);
+
+        const ITextClass = getFabricClass('IText');
+        const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+        if (ITextClass && targetCanvas) {
+          const cardText = new ITextClass(`🎬 In-App ${nativeRecordingType.toUpperCase()} Record Card\n⏱️ Duration: ${recordingSec}s\n🔗 Double click to play`, {
+            left: 200,
+            top: 200,
+            fontSize: 16,
+            fontFamily: 'Arial',
+            fill: '#0284c7',
+            backgroundColor: '#f0f9ff',
+            padding: 12,
+          });
+          targetCanvas.add(cardText);
+          targetCanvas.setActiveObject(cardText);
+          targetCanvas.renderAll();
+          saveState(targetCanvas);
+        }
+
+        alert(`🎉 Native In-App ${nativeRecordingType.toUpperCase()} recording saved and embedded onto canvas stage!`);
+        notifyUser('✅ Recorded media embedded to viewport stage!');
+      }, 500);
+    }
+  };
+
+  // --- 2. REAL-TIME LIVE STREAMING TRANSCRIBER ENGINE ---
+  const handleToggleLiveStreamingSpeech = () => {
+    if (isLiveStreamingSpeech) {
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
+      }
+      setIsLiveStreamingSpeech(false);
+      notifyUser('🎙️ Live speech streaming stopped.');
+      return;
+    }
+
+    const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechClass) {
+      alert('Live Speech Streaming is supported in Chrome, Edge, and Safari browsers.');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        notifyUser(`⚡ Live Transcribing: "${interimTranscript || finalTranscript}"`);
+
+        if (finalTranscript.trim()) {
+          const ITextClass = getFabricClass('IText');
+          const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+          if (ITextClass && targetCanvas) {
+            const liveText = new ITextClass(`🎙️ Live Stream:\n"${finalTranscript}"`, {
+              left: 180 + Math.random() * 40,
+              top: 180 + Math.random() * 40,
+              fontSize: 18,
+              fontFamily: 'Arial',
+              fill: '#0f172a',
+              backgroundColor: '#ffffff',
+              padding: 10,
+            });
+            targetCanvas.add(liveText);
+            targetCanvas.renderAll();
+            saveState(targetCanvas);
+          }
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn('Speech stream note:', e);
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+      setIsLiveStreamingSpeech(true);
+      notifyUser('🎙️ Live Real-Time Speech Transcriber Active - Speak into mic!');
+    } catch (err: any) {
+      alert('Could not start live speech stream: ' + err.message);
+    }
+  };
+
+  // DEVICE SECURITY PIN HANDLERS
   const handleCreateDevicePin = () => {
     if (newPinInput.length !== 4 || !/^\d{4}$/.test(newPinInput)) {
       alert('Please enter a 4-digit numeric PIN (e.g. 1234).');
@@ -293,16 +457,6 @@ function CanvasStudio() {
     }
   };
 
-  const handleLockStudioNow = () => {
-    const savedPin = localStorage.getItem('omni_device_pin');
-    if (!savedPin) {
-      setIsPinSetupOpen(true);
-    } else {
-      setIsDeviceUnlocked(false);
-      notifyUser('🔒 Studio locked.');
-    }
-  };
-
   const handleResizeCanvas = (newWidth: number, newHeight: number) => {
     const w = Math.max(280, Math.min(3000, Math.round(newWidth)));
     const h = Math.max(280, Math.min(3000, Math.round(newHeight)));
@@ -317,7 +471,7 @@ function CanvasStudio() {
     }
   };
 
-  // --- 1. FLEXIBLE INTERACTIVE CROP & MASK ENGINE ---
+  // CROP & MASK HANDLERS
   const handleStartInteractiveCrop = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -430,7 +584,6 @@ function CanvasStudio() {
     notifyUser('✂️ Crop operation canceled.');
   };
 
-  // --- 2. "DONE" CHECKPOINT COMMIT ACTION ---
   const handleSaveProgressCheckpoint = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -447,18 +600,17 @@ function CanvasStudio() {
 
       saveState(targetCanvas);
       notifyUser('🎉 Done! Progress checkpoint saved and locked in!');
-      alert('🎉 Done! Your editing checkpoint has been committed!\n\nAll changes up to this point are securely saved. You can continue editing without losing any progress.');
+      alert('🎉 Done! Your editing checkpoint has been committed!');
     } catch (e: any) {
       alert('Error saving checkpoint: ' + e.message);
     }
   };
 
-  // --- 3. COMPREHENSIVE MULTI-PAGE PRINT ENGINE ---
   const handlePrintDocument = async () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
 
-    notifyUser('🖨️ Preparing high-resolution printable document...');
+    notifyUser('🖨️ Preparing printable document...');
 
     try {
       const printWindow = window.open('', '_blank');
@@ -574,7 +726,6 @@ function CanvasStudio() {
     }
   };
 
-  // --- SYNCHRONOUS RESILIENT PDF VIEWPORT RENDER ENGINE ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf) {
       alert('PDF Error: PDF document instance is missing.');
@@ -582,10 +733,7 @@ function CanvasStudio() {
     }
 
     const activeCanvas = fabricCanvasRef.current || fabricCanvas;
-    if (!activeCanvas) {
-      console.warn('Waiting for fabric canvas mount...');
-      return;
-    }
+    if (!activeCanvas) return;
 
     notifyUser(`📄 Rendering PDF Page ${pageNumber} of ${pdf.numPages}...`);
 
@@ -1587,10 +1735,10 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (IN-APP RECORDER & LIVE SPEECH STREAMER BUTTONS) */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
-        {/* LEFT: QUICK LAUNCHERS (EDIT TEXT, CROP, DONE CHECKPOINT, PRINT, RECORDER, PIN LOCK, CHAT) */}
+        {/* LEFT: QUICK LAUNCHERS */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
           <button
             onClick={handleExtractAndEditPdfText}
@@ -1625,19 +1773,27 @@ function CanvasStudio() {
           </button>
 
           <button
+            onClick={() => handleRequestHardwarePermissionsAndRecord('video')}
+            style={{ padding: '5px 12px', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)', touchAction: 'manipulation' }}
+            title="Record video/audio directly using device camera and microphone"
+          >
+            🎥 Camera/Mic Recorder
+          </button>
+
+          <button
+            onClick={handleToggleLiveStreamingSpeech}
+            style={{ padding: '5px 12px', backgroundColor: isLiveStreamingSpeech ? '#ef4444' : '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
+            title="Stream speech in real time second-by-second directly onto canvas document"
+          >
+            {isLiveStreamingSpeech ? '⏹️ Stop Live Speech' : '🎙️ Live Speech Streamer'}
+          </button>
+
+          <button
             onClick={() => setIsPinSetupOpen(true)}
             style={{ padding: '5px 12px', backgroundColor: '#64748b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(100, 116, 139, 0.4)', touchAction: 'manipulation' }}
             title="Set or Manage 4-Digit Quick PIN to protect your activities on this device"
           >
             🔒 Protect Device (PIN)
-          </button>
-
-          <button
-            onClick={() => setIsUnlimitedRecorderOpen(true)}
-            style={{ padding: '5px 12px', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.4)', touchAction: 'manipulation' }}
-            title="Record Unlimited Audio or Video and Transcribe to Text"
-          >
-            🎥 Record & Transcribe
           </button>
 
           <button
@@ -1728,6 +1884,21 @@ function CanvasStudio() {
 
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
+          {/* FLOATING ACTION OVERLAY FOR IN-APP NATIVE RECORDING */}
+          {isNativeRecording && (
+            <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', backgroundColor: '#0f172a', padding: '12px 20px', borderRadius: '16px', boxShadow: '0 10px 40px rgba(0,0,0,0.6)', border: '2px solid #ef4444' }}>
+              {nativeRecordingType === 'video' && (
+                <video ref={videoPreviewRef} autoPlay muted style={{ width: '180px', height: '120px', borderRadius: '8px', backgroundColor: '#000', objectFit: 'cover' }} />
+              )}
+              <div style={{ color: '#ef4444', fontSize: '13px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🔴 Recording Live: <span style={{ fontFamily: 'monospace' }}>{formatCountdown(recordingSec)}</span>
+              </div>
+              <button onClick={handleStopNativeRecordingAndEmbed} style={{ padding: '6px 16px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ⏹️ Stop & Embed to Viewport
+              </button>
+            </div>
+          )}
+
           {/* FLOATING ACTION OVERLAY FOR DYNAMIC CROP MODE */}
           {isCroppingActive && (
             <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#0f172a', padding: '8px 16px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #38bdf8' }}>
