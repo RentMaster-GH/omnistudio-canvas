@@ -2084,14 +2084,24 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
-      <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (TWO-ROW CLEAN LAYOUT WITH HORIZONTAL SCROLLBAR) */}
+      <div style={{ position: 'relative', zIndex: 40, display: 'flex', flexDirection: 'column', gap: '6px', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}` }}>
         
-        {/* LEFT: QUICK LAUNCHERS */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+        {/* ROW 1: HORIZONTALLY SCROLLABLE TOOL BAR (No overlapping, smooth touch/mouse scroll) */}
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '8px', 
+          overflowX: 'auto', 
+          whiteSpace: 'nowrap', 
+          paddingBottom: '4px',
+          scrollbarWidth: 'thin',
+          WebkitOverflowScrolling: 'touch',
+          touchAction: 'pan-x'
+        }}>
           <button
             onClick={handleStartLiveContentStreamEditing}
-            style={{ padding: '5px 12px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(16, 185, 129, 0.4)', touchAction: 'manipulation' }}
             title="In-place content stream editor: Extract stream operators with font metadata and edit text directly"
           >
             ⚡ Direct Stream Text Editor
@@ -2099,7 +2109,7 @@ function CanvasStudio() {
 
           <button
             onClick={handleTogglePrecisionEraser}
-            style={{ padding: '5px 12px', backgroundColor: isEraserActive ? '#dc2626' : '#ea580c', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(234, 88, 12, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: isEraserActive ? '#dc2626' : '#ea580c', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(234, 88, 12, 0.4)', touchAction: 'manipulation' }}
             title="Clean precision eraser to erase text or items cleanly without smudges"
           >
             {isEraserActive ? '🛑 Exit Eraser' : '🧹 Precision Eraser'}
@@ -2107,7 +2117,7 @@ function CanvasStudio() {
 
           <button
             onClick={handleStartInteractiveCrop}
-            style={{ padding: '5px 12px', backgroundColor: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)', touchAction: 'manipulation' }}
             title="Adjust top, bottom, and side boundaries to crop document or image"
           >
             ✂️ Crop Page/Image
@@ -2115,7 +2125,7 @@ function CanvasStudio() {
 
           <button
             onClick={handleSaveProgressCheckpoint}
-            style={{ padding: '5px 12px', backgroundColor: '#8b5cf6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#8b5cf6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)', touchAction: 'manipulation' }}
             title="Save a permanent progress checkpoint and lock in changes up to this point"
           >
             ✅ Done (Checkpoint)
@@ -2123,7 +2133,7 @@ function CanvasStudio() {
 
           <button
             onClick={handlePrintDocument}
-            style={{ padding: '5px 12px', backgroundColor: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#f59e0b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)', touchAction: 'manipulation' }}
             title="Open native print preview driver for physical printout"
           >
             🖨️ Print Document
@@ -2131,14 +2141,14 @@ function CanvasStudio() {
 
           <button
             onClick={() => handleRequestHardwarePermissionsAndRecord('video')}
-            style={{ padding: '5px 12px', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)', touchAction: 'manipulation' }}
             title="Record video/audio directly using device camera and microphone"
           >
             🎥 Camera/Mic Recorder
           </button>
 
           {/* REAL-TIME SPEECH TRANSCRIBER & LANGUAGE SELECTOR */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#1e293b', padding: '2px 6px', borderRadius: '6px', border: '1px solid #334155' }}>
+          <div style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#1e293b', padding: '2px 6px', borderRadius: '6px', border: '1px solid #334155' }}>
             <select
               value={selectedSpeechLang}
               onChange={(e) => setSelectedSpeechLang(e.target.value)}
@@ -2182,7 +2192,7 @@ function CanvasStudio() {
 
           <button
             onClick={() => setIsPinSetupOpen(true)}
-            style={{ padding: '5px 12px', backgroundColor: '#64748b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(100, 116, 139, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#64748b', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(100, 116, 139, 0.4)', touchAction: 'manipulation' }}
             title="Set or Manage 4-Digit Quick PIN to protect your activities on this device"
           >
             🔒 Protect Device (PIN)
@@ -2190,74 +2200,79 @@ function CanvasStudio() {
 
           <button
             onClick={() => setIsSocialMessengerOpen(true)}
-            style={{ padding: '5px 12px', backgroundColor: '#ec4899', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(236, 72, 153, 0.4)', touchAction: 'manipulation' }}
+            style={{ flexShrink: 0, padding: '5px 12px', backgroundColor: '#ec4899', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 8px rgba(236, 72, 153, 0.4)', touchAction: 'manipulation' }}
             title="Open Real-Time Chat, Friends & P2P Voice/Video Calls"
           >
             💬 Chat & Calls
           </button>
         </div>
 
-        {/* CENTER: STATUS & PAYWALL DISPLAY */}
-        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '500' }}>
-            {statusMessage}
-          </span>
+        {/* ROW 2: STATUS & BRAND PALETTE BAR */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+          
+          {/* STATUS & PAYWALL DISPLAY */}
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '500' }}>
+              {statusMessage}
+            </span>
 
-          {isAppManager ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-              <span>👑 App Manager</span>
-            </div>
-          ) : isProUnlocked ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
-              <span>🎉 Pro Unlocked</span>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                backgroundColor: freeTimeRemainingSec < 300 ? 'rgba(239, 68, 68, 0.2)' : '#0f172a',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: freeTimeRemainingSec < 300 ? '1px solid #ef4444' : '1px solid #334155',
-                fontSize: '11px',
-                fontWeight: 'bold',
-                color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
-              }}>
-                <span>⏱️ Free Access:</span>
-                <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
+            {isAppManager ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(245, 158, 11, 0.2)', border: '1px solid #f59e0b', color: '#fbbf24', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+                <span>👑 App Manager</span>
               </div>
-
-              <button
-                onClick={handlePaystackUpgrade}
-                style={{
-                  padding: '4px 12px',
-                  backgroundColor: '#0284c7',
-                  color: '#ffffff',
-                  border: 'none',
+            ) : isProUnlocked ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid #10b981', color: '#34d399', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold' }}>
+                <span>🎉 Pro Unlocked</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: freeTimeRemainingSec < 300 ? 'rgba(239, 68, 68, 0.2)' : '#0f172a',
+                  padding: '4px 10px',
                   borderRadius: '6px',
+                  border: freeTimeRemainingSec < 300 ? '1px solid #ef4444' : '1px solid #334155',
                   fontSize: '11px',
                   fontWeight: 'bold',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
-                  transition: 'all 0.15s ease',
-                  touchAction: 'manipulation'
-                }}
-              >
-                ⚡ Unlock Pro
-              </button>
-            </div>
-          )}
+                  color: freeTimeRemainingSec < 300 ? '#fca5a5' : '#38bdf8'
+                }}>
+                  <span>⏱️ Free Access:</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: '12px' }}>{formatCountdown(freeTimeRemainingSec)}</span>
+                </div>
+
+                <button
+                  onClick={handlePaystackUpgrade}
+                  style={{
+                    padding: '4px 12px',
+                    backgroundColor: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(2, 132, 199, 0.4)',
+                    transition: 'all 0.15s ease',
+                    touchAction: 'manipulation'
+                  }}
+                >
+                  ⚡ Unlock Pro
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* BRAND PALETTE SWATCHES */}
+          <div style={{ flexShrink: 0 }}>
+            <BrandPaletteHeader
+              fabricCanvas={fabricCanvasRef.current || fabricCanvas}
+              onColorSelect={handleSelectBrandColor}
+            />
+          </div>
         </div>
 
-        {/* RIGHT: BRAND PALETTE SWATCHES */}
-        <div style={{ flexShrink: 0 }}>
-          <BrandPaletteHeader
-            fabricCanvas={fabricCanvasRef.current || fabricCanvas}
-            onColorSelect={handleSelectBrandColor}
-          />
-        </div>
       </div>
 
       {/* 3. MAIN WORKSPACE */}
