@@ -37,7 +37,10 @@ import { UnlimitedStudioRecorderModal } from './components/toolbar/UnlimitedStud
 // 💬 Real-Time Social Chat & P2P Voice/Video Calls Modal Import
 import { SocialMessengerModal } from './components/social/SocialMessengerModal';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+// Robust PDF.js Worker CDN Definition for Production Deployments
+if (typeof window !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+}
 
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:5000/api'
@@ -312,10 +315,15 @@ function CanvasStudio() {
     notifyUser('⬛ Redaction blackout shield added to canvas!');
   };
 
-  // --- BULLETPROOF PDF VIEWPORT RENDER ENGINE (NATIVE IMAGE PRELOADER) ---
+  // --- DIAGNOSTIC PDF VIEWPORT RENDER ENGINE ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
-    if (!pdf || !fabricCanvas) {
-      console.warn('Cannot render PDF: pdf or fabricCanvas is null');
+    if (!pdf) {
+      alert('PDF Error: PDF document instance is missing.');
+      return;
+    }
+
+    if (!fabricCanvas) {
+      alert('Canvas Viewport Error: Fabric Canvas is not initialized yet. Please refresh the page.');
       return;
     }
 
@@ -323,7 +331,7 @@ function CanvasStudio() {
 
     try {
       const page = await pdf.getPage(pageNumber);
-      const highDpiScale = 2.0;
+      const highDpiScale = 1.5;
       const unscaledViewport = page.getViewport({ scale: 1.0 });
 
       const stageW = canvasWidth || 1050;
@@ -339,7 +347,7 @@ function CanvasStudio() {
 
       const tempCanvas = document.createElement('canvas');
       const context = tempCanvas.getContext('2d');
-      if (!context) return;
+      if (!context) throw new Error('Could not create 2D canvas context');
 
       tempCanvas.height = viewport.height;
       tempCanvas.width = viewport.width;
@@ -347,36 +355,49 @@ function CanvasStudio() {
       await page.render({ canvasContext: context, viewport }).promise;
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      // Native Browser Image Loader (Bypasses Fabric.js CORS Data-URI restrictions in production)
+      // Native Image Preloader with Error Shielding
       const img = new Image();
-      img.onload = () => {
-        if (!fabricCanvas) return;
-
-        const ImageClass = getFabricImage();
-        const scaledW = tempCanvas.width / highDpiScale;
-        const scaledH = tempCanvas.height / highDpiScale;
-
-        const fabricImg = new ImageClass(img, {
-          scaleX: 1 / highDpiScale,
-          scaleY: 1 / highDpiScale,
-          left: (stageW - scaledW) / 2,
-          top: (stageH - scaledH) / 2,
-          selectable: false,
-          evented: false,
-        });
-
-        fabricCanvas.clear();
-        fabricCanvas.add(fabricImg);
-        fabricCanvas.sendToBack(fabricImg);
-        fabricCanvas.renderAll();
-        updateLayersList();
-        saveState(fabricCanvas);
-        notifyUser(`📄 Loaded PDF Page ${pageNumber} into Viewport Stage!`);
+      img.onerror = (e) => {
+        console.error('HTML Image Preloader Failed:', e);
+        alert('Image Load Error: Failed to preload rendered PDF page frame.');
       };
+
+      img.onload = () => {
+        try {
+          const ImageClass = getFabricImage();
+          if (!ImageClass) throw new Error('Fabric Image Constructor Class not found');
+
+          const scaledW = tempCanvas.width / highDpiScale;
+          const scaledH = tempCanvas.height / highDpiScale;
+
+          const fabricImg = new ImageClass(img, {
+            scaleX: 1 / highDpiScale,
+            scaleY: 1 / highDpiScale,
+            left: (stageW - scaledW) / 2,
+            top: (stageH - scaledH) / 2,
+            selectable: false,
+            evented: false,
+          });
+
+          fabricCanvas.clear();
+          fabricCanvas.add(fabricImg);
+          fabricCanvas.sendToBack(fabricImg);
+          fabricCanvas.renderAll();
+          
+          updateLayersList();
+          saveState(fabricCanvas);
+          notifyUser(`✅ Successfully Loaded PDF Page ${pageNumber} into Viewport Stage!`);
+        } catch (innerErr: any) {
+          console.error('Fabric Canvas Add Error:', innerErr);
+          alert('Fabric Canvas Error: ' + innerErr.message);
+        }
+      };
+
       img.src = imgDataUrl;
 
     } catch (err: any) {
       console.error('Error rendering PDF page onto canvas:', err);
+      alert('PDF Page Render Failure: ' + err.message);
       notifyUser(`Error rendering PDF: ${err.message}`);
     }
   };
@@ -406,6 +427,11 @@ function CanvasStudio() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!fabricCanvas) {
+      alert('Canvas Viewport is still initializing. Please wait a moment and upload again.');
+      return;
+    }
+
     notifyUser('📄 Loading PDF into Canvas Studio...');
     try {
       const fileArrayBuffer = await file.arrayBuffer();
@@ -421,7 +447,7 @@ function CanvasStudio() {
       generateThumbnails(loadedPdf);
     } catch (err: any) {
       console.error('PDF Upload Error:', err);
-      alert(`Could not load PDF document: ${err.message}`);
+      alert(`Could not parse PDF document: ${err.message}`);
       notifyUser(`Error loading PDF: ${err.message}`);
     }
   };
