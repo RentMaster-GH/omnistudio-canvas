@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, Component } from 'react';
+mport React, { useEffect, useRef, useState, Component } from 'react';
 import * as fabric from 'fabric';
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -162,7 +162,7 @@ function CanvasStudio() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
-  // MEDIA PLAYBACK MODAL STATE (FOR DOUBLE-CLICK PLAY)
+  // MEDIA PLAYBACK MODAL STATE
   const [playbackMediaUrl, setPlaybackMediaUrl] = useState<string | null>(null);
   const [playbackMediaType, setPlaybackMediaType] = useState<'video' | 'audio'>('video');
 
@@ -411,7 +411,6 @@ function CanvasStudio() {
             selectable: true,
           });
 
-          // Attach media URL & type directly to Fabric object properties for double-click playback
           (cardText as any).mediaUrl = mediaUrl;
           (cardText as any).mediaType = nativeRecordingType;
 
@@ -449,7 +448,7 @@ function CanvasStudio() {
       const recognition = new SpeechClass();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = selectedSpeechLang; // Set selected target language
+      recognition.lang = selectedSpeechLang;
 
       recognition.onresult = (event: any) => {
         let interimTranscript = '';
@@ -495,7 +494,7 @@ function CanvasStudio() {
     }
   };
 
-  // --- FABRIC DOUBLE-CLICK MEDIA PLAYBACK EVENT LISTENER ---
+  // FABRIC DOUBLE-CLICK MEDIA PLAYBACK EVENT LISTENER
   useEffect(() => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -1966,7 +1965,7 @@ function CanvasStudio() {
         />
       </div>
 
-      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR (INCLUDES MULTI-LANGUAGE SPEECH STREAM SELECTOR) */}
+      {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '6px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px', touchAction: 'manipulation' }}>
         
         {/* LEFT: QUICK LAUNCHERS */}
@@ -2029,10 +2028,24 @@ function CanvasStudio() {
             >
               <option value="en-US">🇺🇸 English (US)</option>
               <option value="en-GB">🇬🇧 English (UK)</option>
+              <option value="ak-GH">🇬🇭 Asante Twi (Ghana)</option>
+              <option value="ak-GH">🇬🇭 Akuapem Twi (Ghana)</option>
+              <option value="fat-GH">🇬🇭 Fante (Ghana)</option>
+              <option value="ee-GH">🇬🇭 Ewe (Ghana)</option>
+              <option value="gaa-GH">🇬🇭 Ga-Dangme (Ghana)</option>
+              <option value="dag-GH">🇬🇭 Mole-Dagbani (Ghana)</option>
+              <option value="gjn-GH">🇬🇭 Gonja (Ghana)</option>
+              <option value="yo-NG">🇳🇬 Yoruba (Nigeria)</option>
+              <option value="ig-NG">🇳🇬 Igbo (Nigeria)</option>
+              <option value="ha-NG">🇳🇬 Hausa (West Africa)</option>
+              <option value="pcm-NG">🇳🇬 West African Pidgin</option>
+              <option value="am-ET">🇪🇹 Amharic (Ethiopia)</option>
+              <option value="af-ZA">🇿🇦 Afrikaans (South Africa)</option>
+              <option value="zu-ZA">🇿🇦 Zulu (South Africa)</option>
               <option value="fr-FR">🇫🇷 French</option>
               <option value="es-ES">🇪🇸 Spanish</option>
               <option value="de-DE">🇩🇪 German</option>
-              <option value="sw-KE">🇰🇪 Swahili</option>
+              <option value="sw-KE">🇰🇪 Swahili (East Africa)</option>
               <option value="ar-SA">🇸🇦 Arabic</option>
               <option value="zh-CN">🇨🇳 Chinese</option>
               <option value="pt-BR">🇧🇷 Portuguese</option>
@@ -2362,7 +2375,7 @@ function CanvasStudio() {
         </div>
       )}
 
-      {/* 🎬 NATIVE MEDIA PLAYBACK MODAL (FOR DOUBLE-CLICK PLAY) */}
+      {/* 🎬 NATIVE MEDIA PLAYBACK MODAL */}
       {playbackMediaUrl && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 250, backgroundColor: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ backgroundColor: '#1e293b', border: '1px solid #38bdf8', borderRadius: '16px', padding: '24px', maxWidth: '540px', width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.7)', fontFamily: 'sans-serif', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
