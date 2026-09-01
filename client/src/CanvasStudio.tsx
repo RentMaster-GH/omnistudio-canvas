@@ -119,6 +119,8 @@ class StudioErrorBoundary extends Component<StudioErrorBoundaryProps, StudioErro
 
 function CanvasStudio() {
   const fabricCanvasRef = useRef<any>(null); // Synchronous Unmanaged Canvas Ref
+  const cropRectRef = useRef<any>(null); // Interactive Crop Box Ref
+  const cropTargetObjRef = useRef<any>(null); // Active Target Being Cropped Ref
 
   const [fabricCanvas, setFabricCanvas] = useState<any>(null);
   const [activePortal, setActivePortal] = useState<'pdf' | 'canvas' | 'video'>('pdf');
@@ -128,6 +130,7 @@ function CanvasStudio() {
 
   const [activeEditingObject, setActiveEditingObject] = useState<any>(null);
   const [canvasLayers, setCanvasLayers] = useState<any[]>([]);
+  const [isCroppingActive, setIsCroppingActive] = useState(false);
 
   const [, setShowProjectsModal] = useState(false);
 
@@ -258,6 +261,212 @@ function CanvasStudio() {
     }
   };
 
+  // --- 1. FLEXIBLE INTERACTIVE CROP & MASK ENGINE ---
+  const handleStartInteractiveCrop = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    let targetObj = targetCanvas.getActiveObject();
+    
+    // Fallback: If no object explicitly selected, pick first image/page object on stage
+    if (!targetObj) {
+      const objs = targetCanvas.getObjects();
+      if (objs.length > 0) {
+        targetObj = objs[0];
+      }
+    }
+
+    if (!targetObj) {
+      alert('Please upload a PDF or add an image/shape to the canvas stage before cropping!');
+      return;
+    }
+
+    cropTargetObjRef.current = targetObj;
+
+    const RectClass = getFabricClass('Rect');
+    if (!RectClass) return;
+
+    // Create interactive flexible crop bounding box with side and corner handles
+    const targetW = targetObj.width * (targetObj.scaleX || 1);
+    const targetH = targetObj.height * (targetObj.scaleY || 1);
+    const cropWidth = targetW * 0.8;
+    const cropHeight = targetH * 0.8;
+
+    const cropBox = new RectClass({
+      left: targetObj.left + (targetW - cropWidth) / 2,
+      top: targetObj.top + (targetH - cropHeight) / 2,
+      width: cropWidth,
+      height: cropHeight,
+      fill: 'rgba(2, 132, 199, 0.15)',
+      stroke: '#0284c7',
+      strokeWidth: 2,
+      strokeDashArray: [6, 6],
+      cornerColor: '#0284c7',
+      cornerStyle: 'circle',
+      cornerSize: 12,
+      transparentCorners: false,
+      hasRotatingPoint: false, // Disables rotation during crop mode for clean alignment
+      lockRotation: true,
+      borderColor: '#0284c7',
+      borderScaleFactor: 2,
+    });
+
+    targetCanvas.add(cropBox);
+    targetCanvas.setActiveObject(cropBox);
+    targetCanvas.renderAll();
+
+    cropRectRef.current = cropBox;
+    setIsCroppingActive(true);
+    notifyUser('✂️ Drag top/bottom/side handles to adjust crop boundaries, then click Apply!');
+  };
+
+  const handleApplyInteractiveCrop = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    const cropBox = cropRectRef.current;
+    const targetObj = cropTargetObjRef.current;
+
+    if (!targetCanvas || !cropBox || !targetObj) {
+      setIsCroppingActive(false);
+      return;
+    }
+
+    const RectClass = getFabricClass('Rect');
+    if (RectClass) {
+      const scaleX = targetObj.scaleX || 1;
+      const scaleY = targetObj.scaleY || 1;
+
+      // Relative crop box bounds
+      const relLeft = (cropBox.left - targetObj.left) / scaleX;
+      const relTop = (cropBox.top - targetObj.top) / scaleY;
+      const relWidth = (cropBox.width * (cropBox.scaleX || 1)) / scaleX;
+      const relHeight = (cropBox.height * (cropBox.scaleY || 1)) / scaleY;
+
+      const clipRect = new RectClass({
+        left: relLeft - (targetObj.width / 2) + (relWidth / 2),
+        top: relTop - (targetObj.height / 2) + (relHeight / 2),
+        width: relWidth,
+        height: relHeight,
+        originX: 'center',
+        originY: 'center',
+      });
+
+      targetObj.set({ clipPath: clipRect });
+      targetCanvas.remove(cropBox);
+      targetCanvas.discardActiveObject();
+      targetCanvas.renderAll();
+
+      cropRectRef.current = null;
+      cropTargetObjRef.current = null;
+      setIsCroppingActive(false);
+      saveState(targetCanvas);
+      notifyUser('✂️ Dynamic crop mask applied successfully!');
+    }
+  };
+
+  const handleCancelInteractiveCrop = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    const cropBox = cropRectRef.current;
+
+    if (targetCanvas && cropBox) {
+      targetCanvas.remove(cropBox);
+      targetCanvas.renderAll();
+    }
+
+    cropRectRef.current = null;
+    cropTargetObjRef.current = null;
+    setIsCroppingActive(false);
+    notifyUser('✂️ Crop operation canceled.');
+  };
+
+  // --- 2. "DONE" CHECKPOINT COMMIT ACTION ---
+  const handleSaveProgressCheckpoint = () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    try {
+      const currentState = targetCanvas.toJSON();
+      const checkpointKey = `omni_checkpoint_${guestUserId}`;
+      localStorage.setItem(checkpointKey, JSON.stringify({
+        timestamp: Date.now(),
+        pageNum: pageNum,
+        totalPages: totalPages,
+        state: currentState
+      }));
+
+      saveState(targetCanvas);
+      notifyUser('🎉 Done! Progress checkpoint saved and locked in!');
+      alert('🎉 Done! Your editing checkpoint has been committed!\n\nAll changes up to this point are securely saved. You can continue editing without losing any progress.');
+    } catch (e: any) {
+      alert('Error saving checkpoint: ' + e.message);
+    }
+  };
+
+  // --- 3. COMPREHENSIVE MULTI-PAGE PRINT ENGINE ---
+  const handlePrintDocument = async () => {
+    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
+    if (!targetCanvas) return;
+
+    notifyUser('🖨️ Preparing high-resolution printable document...');
+
+    try {
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('Please allow popups for this site to open the print preview.');
+        return;
+      }
+
+      let printPagesHtml = '';
+
+      if (pdfDoc && totalPages > 0) {
+        // Multi-page PDF Render Loop
+        for (let i = 1; i <= totalPages; i++) {
+          await renderPdfPageOntoCanvas(pdfDoc, i);
+          const pageDataUrl = targetCanvas.toDataURL({ format: 'png', quality: 1.0 });
+          printPagesHtml += `<div class="print-page"><img src="${pageDataUrl}" /></div>`;
+        }
+        // Restore active page
+        await renderPdfPageOntoCanvas(pdfDoc, pageNum);
+      } else {
+        // Single Canvas Viewport Print
+        const currentDataUrl = targetCanvas.toDataURL({ format: 'png', quality: 1.0 });
+        printPagesHtml = `<div class="print-page"><img src="${currentDataUrl}" /></div>`;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Print Document - OmniStudio Canvas</title>
+            <style>
+              @page { size: auto; margin: 0; }
+              body { margin: 0; padding: 0; background: #ffffff; font-family: sans-serif; }
+              .print-page { page-break-after: always; display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; overflow: hidden; }
+              .print-page img { max-width: 100%; max-height: 100%; object-fit: contain; }
+              @media print {
+                body { -webkit-print-color-adjust: exact; }
+              }
+            </style>
+          </head>
+          <body>
+            ${printPagesHtml}
+            <script>
+              window.onload = function() {
+                setTimeout(function() {
+                  window.print();
+                }, 500);
+              };
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      notifyUser('🖨️ Print preview opened!');
+    } catch (err: any) {
+      console.error('Print Error:', err);
+      alert('Print Error: ' + err.message);
+    }
+  };
+
   const handleLoadSampleDemo = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas) return;
@@ -292,24 +501,6 @@ function CanvasStudio() {
     navigator.clipboard.writeText(shareUrl);
     alert(`🔗 Shareable Project URL copied to clipboard:\n${shareUrl}`);
     notifyUser('🔗 Project share URL copied to clipboard!');
-  };
-
-  const handleApplyCropMask = () => {
-    const targetCanvas = fabricCanvasRef.current || fabricCanvas;
-    if (!targetCanvas) return;
-    const activeObj = targetCanvas.getActiveObject();
-    if (!activeObj) {
-      alert('Please select an image or object on the canvas first to apply a crop mask!');
-      return;
-    }
-    const RectClass = getFabricClass('Rect');
-    if (RectClass) {
-      activeObj.set({ clipPath: new RectClass({ width: activeObj.width * 0.8, height: activeObj.height * 0.8, originX: 'center', originY: 'center' }) });
-      targetCanvas.renderAll();
-      saveState(targetCanvas);
-      setIsCropModalOpen(false);
-      notifyUser('✂️ Applied crop mask to selected canvas element!');
-    }
   };
 
   const handleApplyRedaction = () => {
@@ -1303,7 +1494,7 @@ function CanvasStudio() {
           onRunOcr={handleRunOcr}
           onOpenVoiceRecorder={() => setIsUnlimitedRecorderOpen(true)}
           onOpenPdfMergerModal={() => setIsPdfMergerOpen(true)}
-          onOpenCropModal={() => setIsCropModalOpen(true)}
+          onOpenCropModal={handleStartInteractiveCrop}
           onOpenRedactionModal={() => setIsRedactionModalOpen(true)}
           onOpenEyeDropper={handleOpenEyeDropper}
           onAddRectangle={handleAddRectangle}
@@ -1328,7 +1519,7 @@ function CanvasStudio() {
       {/* 3. STUDIO ACTION & BRAND SWATCHES BAR */}
       <div style={{ position: 'relative', zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: darkMode ? '#0f172a' : '#e2e8f0', padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '10px', touchAction: 'manipulation' }}>
         
-        {/* LEFT: QUICK LAUNCHERS */}
+        {/* LEFT: QUICK LAUNCHERS (EDIT TEXT, CROP, DONE CHECKPOINT, PRINT) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
           <button
             onClick={handleExtractAndEditPdfText}
@@ -1354,7 +1545,7 @@ function CanvasStudio() {
           </button>
 
           <button
-            onClick={() => setIsUnlimitedRecorderOpen(true)}
+            onClick={handleStartInteractiveCrop}
             style={{
               padding: '4px 12px',
               backgroundColor: '#0284c7',
@@ -1371,13 +1562,13 @@ function CanvasStudio() {
               transition: 'all 0.15s ease',
               touchAction: 'manipulation'
             }}
-            title="Record Unlimited Audio or Video and Transcribe to Text"
+            title="Adjust side/top/bottom boundaries to crop document"
           >
-            🎥 Record & Transcribe
+            ✂️ Crop Page/Image
           </button>
 
           <button
-            onClick={() => setIsSocialMessengerOpen(true)}
+            onClick={handleSaveProgressCheckpoint}
             style={{
               padding: '4px 12px',
               backgroundColor: '#8b5cf6',
@@ -1391,6 +1582,75 @@ function CanvasStudio() {
               alignItems: 'center',
               gap: '6px',
               boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)',
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
+            }}
+            title="Save a permanent progress checkpoint and lock in changes up to this point"
+          >
+            ✅ Done (Checkpoint)
+          </button>
+
+          <button
+            onClick={handlePrintDocument}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#f59e0b',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.4)',
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
+            }}
+            title="Open native print preview driver for physical printout"
+          >
+            🖨️ Print Document
+          </button>
+
+          <button
+            onClick={() => setIsUnlimitedRecorderOpen(true)}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#3b82f6',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(59, 130, 246, 0.4)',
+              transition: 'all 0.15s ease',
+              touchAction: 'manipulation'
+            }}
+            title="Record Unlimited Audio or Video and Transcribe to Text"
+          >
+            🎥 Record & Transcribe
+          </button>
+
+          <button
+            onClick={() => setIsSocialMessengerOpen(true)}
+            style={{
+              padding: '4px 12px',
+              backgroundColor: '#ec4899',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 8px rgba(236, 72, 153, 0.4)',
               transition: 'all 0.15s ease',
               touchAction: 'manipulation'
             }}
@@ -1479,6 +1739,19 @@ function CanvasStudio() {
 
         <div style={{ flex: 1, padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', overflow: 'auto', position: 'relative', maxWidth: '100%' }}>
           
+          {/* FLOATING ACTION OVERLAY FOR DYNAMIC CROP MODE */}
+          {isCroppingActive && (
+            <div style={{ position: 'absolute', top: '20px', zIndex: 100, display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: '#0f172a', padding: '8px 16px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', border: '1px solid #38bdf8' }}>
+              <span style={{ color: '#ffffff', fontSize: '12px', fontWeight: 'bold' }}>✂️ Adjust blue box handles to crop:</span>
+              <button onClick={handleApplyInteractiveCrop} style={{ padding: '6px 14px', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ✅ Apply Crop
+              </button>
+              <button onClick={handleCancelInteractiveCrop} style={{ padding: '6px 14px', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+                ❌ Cancel
+              </button>
+            </div>
+          )}
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <PrecisionRuler
               fabricCanvas={fabricCanvasRef.current || fabricCanvas}
@@ -1505,7 +1778,7 @@ function CanvasStudio() {
             </div>
           </div>
 
-          {/* UNMANAGED PORTAL CONTAINER - PREVENTS REACT INSERTBEFORE RECONCILIATION CONFLICTS */}
+          {/* UNMANAGED PORTAL CONTAINER */}
           <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', overflow: 'hidden' }}>
             <div 
               style={{ position: 'relative', width: '100%', height: '100%' }}
@@ -1664,7 +1937,7 @@ function CanvasStudio() {
       <CropMaskModal 
         isOpen={isCropModalOpen}
         onClose={() => setIsCropModalOpen(false)}
-        onApplyCrop={handleApplyCropMask}
+        onApplyCrop={handleApplyInteractiveCrop}
         borderCol={borderCol}
         bgBar={bgBar}
       />
