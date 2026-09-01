@@ -301,7 +301,7 @@ function CanvasStudio() {
     console.log('📌 OmniStudio Status:', msg);
   };
 
-  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE WITH SETCOORDS VISUAL SELECTION ---
+  // --- IN-PLACE CONTENT STREAM & FONT MAPPING ENGINE ---
   const handleStartLiveContentStreamEditing = async () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!pdfDoc || !targetCanvas) {
@@ -345,7 +345,7 @@ function CanvasStudio() {
             fontFamily: fontName,
             fill: textColorVal || '#0f172a',
             backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: '#0284c7', // Bright blue border when selected
+            borderColor: '#0284c7',
             cornerColor: '#0284c7',
             cornerStyle: 'circle',
             cornerSize: 8,
@@ -358,12 +358,11 @@ function CanvasStudio() {
 
           targetCanvas.add(streamTextNode);
           streamTextNode.bringToFront();
-          streamTextNode.setCoords(); // Crucial Fabric v5 call to force selection bounding box coordinates
+          streamTextNode.setCoords();
           extractedTextNodes.push(streamTextNode);
         }
       });
 
-      // Auto-select first extracted text block so blue handles show up on screen immediately
       if (extractedTextNodes.length > 0) {
         targetCanvas.setActiveObject(extractedTextNodes[0]);
         extractedTextNodes[0].setCoords();
@@ -377,13 +376,14 @@ function CanvasStudio() {
       setIsStreamEditingActive(true);
 
       notifyUser(`⚡ Stream Editor Active: ${extractedTextNodes.length} text blocks ready on screen!`);
-      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedTextNodes.length} text lines with font mapping.\n\nWe have automatically selected the first text block on screen with blue handles. Click any text block on your screen to type and edit!`);
+      alert(`⚡ Direct Stream Editor Active!\n\nExtracted ${extractedTextNodes.length} text lines with font mapping.\n\nWe have automatically selected the first text block on screen. Click on ANY text block or click "Highlight All Text Blocks" to see all editable areas!`);
     } catch (err: any) {
       console.error('Content Stream Editing Error:', err);
       alert('Content Stream Extraction Error: ' + err.message);
     }
   };
 
+  // --- GLOWING SKY-BLUE HIGHLIGHT TOGGLE ENGINE ---
   const handleToggleHighlightStreamNodes = () => {
     const targetCanvas = fabricCanvasRef.current || fabricCanvas;
     if (!targetCanvas || extractedStreamNodes.length === 0) return;
@@ -393,15 +393,15 @@ function CanvasStudio() {
 
     extractedStreamNodes.forEach((node) => {
       node.set({
-        stroke: nextState ? '#0284c7' : null,
-        strokeWidth: nextState ? 1 : 0,
-        strokeDashArray: nextState ? [4, 4] : null,
+        // Glow bright sky blue when highlighted, return to white blend when off
+        backgroundColor: nextState ? 'rgba(56, 189, 248, 0.45)' : 'rgba(255, 255, 255, 0.95)',
+        padding: nextState ? 4 : 2,
       });
       node.setCoords();
     });
 
     targetCanvas.renderAll();
-    notifyUser(nextState ? '🎯 Highlighted all editable text fields on page!' : '🎯 Cleared text outlines.');
+    notifyUser(nextState ? `🎯 Glowing blue highlights ON for all ${extractedStreamNodes.length} text blocks!` : '🎯 Cleared text highlights.');
   };
 
   // PRECISION ERASER ENGINE TOGGLE
@@ -565,6 +565,7 @@ function CanvasStudio() {
           });
           targetCanvas.add(cardText);
           targetCanvas.setActiveObject(cardText);
+          cardText.setCoords();
           targetCanvas.renderAll();
           saveState(targetCanvas);
         }
@@ -626,8 +627,9 @@ function CanvasStudio() {
               padding: 10,
             });
             targetCanvas.add(liveText);
+            liveText.setCoords();
             targetCanvas.renderAll();
-            saveState(liveText);
+            saveState(targetCanvas);
           }
         }
       };
