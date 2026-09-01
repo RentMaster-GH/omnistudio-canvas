@@ -941,7 +941,7 @@ function CanvasStudio() {
       />
 
       {/* 2. SECONDARY TOOL RIBBON & BRAND SWATCH HEADER BAR */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: bgBar, padding: '4px 12px', borderBottom: `1px solid ${borderCol}`, flexWrap: 'wrap', gap: '8px' }}>
         <SecondaryRibbon 
           handlePdfDocumentUpload={handlePdfDocumentUpload}
           handleUndo={handleUndo}
@@ -950,6 +950,7 @@ function CanvasStudio() {
           redoStackLength={redoStack.length}
           addText={addText}
           applyWatermarkToAllPages={() => setIsWatermarkModalOpen(true)}
+          onOpenWatermarkModal={() => setIsWatermarkModalOpen(true)}
           applyCanvasPresetRatio={applyCanvasPresetRatio}
           onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
           onRunOcr={handleRunOcr}
