@@ -286,7 +286,6 @@ function CanvasStudio() {
       textContent.items.forEach((item: any) => {
         if (!item.str || !item.str.trim()) return;
 
-        // Extract PDF text coordinates and transform to canvas stage scale
         const tx = pdfjsLib.Util.transform(item.transform, viewport.transform);
         const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
 
@@ -950,7 +949,7 @@ function CanvasStudio() {
     fabricCanvas.isDrawingMode = mode === 'draw';
   };
 
-  // --- AUTOMATIC ASPECT-RATIO FIT PDF PAGE RENDER PIPELINE ---
+  // --- AUTOMATIC ASPECT-RATIO FIT PDF PAGE RENDER PIPELINE (NATIVE HTML IMAGE PRELOADER) ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf || !fabricCanvas) return;
 
@@ -980,29 +979,36 @@ function CanvasStudio() {
 
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      const ImageClass = getFabricImage();
-      if (ImageClass && ImageClass.fromURL) {
-        // Fabric.js v5.3.0 Asynchronous Callback Syntax
-        ImageClass.fromURL(imgDataUrl, (imgObj: any) => {
-          if (!imgObj || !fabricCanvas) return;
+      // Native HTML Image Preloader to bypass Fabric.js v5.3.0 async callback delays
+      const htmlImg = new Image();
+      htmlImg.onload = () => {
+        if (!fabricCanvas) return;
 
-          imgObj.scale(1 / highDpiScale);
-          imgObj.set({
-            left: (stageW - imgObj.getScaledWidth()) / 2,
-            top: (stageH - imgObj.getScaledHeight()) / 2,
-            selectable: false,
-            evented: false,
-          });
+        const ImageConstructor = (fabric as any).Image || ((fabric as any).default && (fabric as any).default.Image);
+        const fabricImg = new ImageConstructor(htmlImg);
 
-          fabricCanvas.clear();
-          fabricCanvas.add(imgObj);
-          fabricCanvas.sendObjectToBack(imgObj);
-          activateToolMode('hand');
-          fabricCanvas.renderAll();
-          saveState(fabricCanvas);
-          setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages} (Auto-Fit Stage)`);
+        const scaledW = htmlImg.width / highDpiScale;
+        const scaledH = htmlImg.height / highDpiScale;
+
+        fabricImg.set({
+          scaleX: 1 / highDpiScale,
+          scaleY: 1 / highDpiScale,
+          left: (stageW - scaledW) / 2,
+          top: (stageH - scaledH) / 2,
+          selectable: false,
+          evented: false,
         });
-      }
+
+        fabricCanvas.clear();
+        fabricCanvas.add(fabricImg);
+        fabricCanvas.sendObjectToBack(fabricImg);
+        activateToolMode('hand');
+        fabricCanvas.renderAll();
+        saveState(fabricCanvas);
+        setStatus(`📄 Rendered PDF Page ${pageNumber} of ${pdf.numPages} in Viewport Stage`);
+      };
+      htmlImg.src = imgDataUrl;
+
     } catch (err: any) {
       console.error('Error rendering PDF page onto canvas:', err);
       setStatus(`Error rendering PDF: ${err.message}`);
