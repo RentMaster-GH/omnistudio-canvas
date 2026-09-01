@@ -312,7 +312,7 @@ function CanvasStudio() {
     notifyUser('⬛ Redaction blackout shield added to canvas!');
   };
 
-  // --- PDF EDITING & VIEWPORT RENDER ENGINE ---
+  // --- BULLETPROOF PDF VIEWPORT RENDER ENGINE (NATIVE IMAGE PRELOADER) ---
   const renderPdfPageOntoCanvas = async (pdf: any, pageNumber: number) => {
     if (!pdf || !fabricCanvas) {
       console.warn('Cannot render PDF: pdf or fabricCanvas is null');
@@ -347,31 +347,34 @@ function CanvasStudio() {
       await page.render({ canvasContext: context, viewport }).promise;
       const imgDataUrl = tempCanvas.toDataURL('image/png', 1.0);
 
-      const ImageClass = getFabricImage();
-      if (ImageClass && ImageClass.fromURL) {
-        ImageClass.fromURL(imgDataUrl, (fabricImg: any) => {
-          if (!fabricImg || !fabricCanvas) return;
+      // Native Browser Image Loader (Bypasses Fabric.js CORS Data-URI restrictions in production)
+      const img = new Image();
+      img.onload = () => {
+        if (!fabricCanvas) return;
 
-          const scaledW = tempCanvas.width / highDpiScale;
-          const scaledH = tempCanvas.height / highDpiScale;
+        const ImageClass = getFabricImage();
+        const scaledW = tempCanvas.width / highDpiScale;
+        const scaledH = tempCanvas.height / highDpiScale;
 
-          fabricImg.set({
-            scaleX: 1 / highDpiScale,
-            scaleY: 1 / highDpiScale,
-            left: (stageW - scaledW) / 2,
-            top: (stageH - scaledH) / 2,
-            selectable: false,
-            evented: false,
-          });
-
-          fabricCanvas.clear();
-          fabricCanvas.add(fabricImg);
-          fabricCanvas.sendToBack(fabricImg);
-          fabricCanvas.renderAll();
-          saveState(fabricCanvas);
-          notifyUser(`📄 Loaded PDF Page ${pageNumber} into Viewport Stage!`);
+        const fabricImg = new ImageClass(img, {
+          scaleX: 1 / highDpiScale,
+          scaleY: 1 / highDpiScale,
+          left: (stageW - scaledW) / 2,
+          top: (stageH - scaledH) / 2,
+          selectable: false,
+          evented: false,
         });
-      }
+
+        fabricCanvas.clear();
+        fabricCanvas.add(fabricImg);
+        fabricCanvas.sendToBack(fabricImg);
+        fabricCanvas.renderAll();
+        updateLayersList();
+        saveState(fabricCanvas);
+        notifyUser(`📄 Loaded PDF Page ${pageNumber} into Viewport Stage!`);
+      };
+      img.src = imgDataUrl;
+
     } catch (err: any) {
       console.error('Error rendering PDF page onto canvas:', err);
       notifyUser(`Error rendering PDF: ${err.message}`);
@@ -399,7 +402,6 @@ function CanvasStudio() {
     setThumbnails(thumbs);
   };
 
-  // --- FIXED CONCURRENCY PDF UPLOAD ENGINE ---
   const handlePdfDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -412,7 +414,7 @@ function CanvasStudio() {
       setTotalPages(loadedPdf.numPages);
       setPageNum(1);
 
-      // STEP 1: Render Page 1 to Viewport Stage FIRST (Prevents PDF.js Concurrent Render Collision)
+      // STEP 1: Render Page 1 to Viewport Stage FIRST
       await renderPdfPageOntoCanvas(loadedPdf, 1);
 
       // STEP 2: Generate Sidebar Thumbnails AFTER main viewport render finishes
@@ -724,16 +726,19 @@ function CanvasStudio() {
 
     if (type === 'image') {
       const ImageClass = getFabricImage();
-      if (ImageClass && ImageClass.fromURL) {
-        ImageClass.fromURL(contentUrlOrText, (imgObj: any) => {
-          if (!imgObj) return;
+      if (ImageClass) {
+        const img = new Image();
+        img.onload = () => {
+          const imgObj = new ImageClass(img);
           imgObj.scaleToWidth(180);
           imgObj.set({ left: 250, top: 180 });
           fabricCanvas.add(imgObj);
           fabricCanvas.setActiveObject(imgObj);
           fabricCanvas.renderAll();
+          updateLayersList();
           saveState();
-        });
+        };
+        img.src = contentUrlOrText;
       }
     } else if (type === 'template') {
       const ITextClass = getFabricIText();
@@ -750,6 +755,7 @@ function CanvasStudio() {
         fabricCanvas.add(textObj);
         fabricCanvas.setActiveObject(textObj);
         fabricCanvas.renderAll();
+        updateLayersList();
         saveState();
       }
     }
@@ -937,16 +943,19 @@ function CanvasStudio() {
   const handleSaveSignature = async (dataUrl: string) => {
     if (!fabricCanvas) return;
     const ImageClass = getFabricImage();
-    if (ImageClass && ImageClass.fromURL) {
-      ImageClass.fromURL(dataUrl, (imgObj: any) => {
-        if (!imgObj) return;
+    if (ImageClass) {
+      const img = new Image();
+      img.onload = () => {
+        const imgObj = new ImageClass(img);
         imgObj.scaleToWidth(180);
         imgObj.set({ left: 300, top: 200 });
         fabricCanvas.add(imgObj);
         fabricCanvas.setActiveObject(imgObj);
         fabricCanvas.renderAll();
+        updateLayersList();
         saveState();
-      });
+      };
+      img.src = dataUrl;
     }
   };
 
