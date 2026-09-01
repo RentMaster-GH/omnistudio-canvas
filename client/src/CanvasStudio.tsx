@@ -31,6 +31,9 @@ import { PrecisionRuler } from './components/toolbar/PrecisionRuler';
 import { TimedPaywallModal } from './components/toolbar/TimedPaywallModal';
 import { MomoCheckoutModal } from './components/toolbar/MomoCheckoutModal';
 
+// Unlimited Duration Recorder & AI Transcriber Modal Import
+import { UnlimitedStudioRecorderModal } from './components/toolbar/UnlimitedStudioRecorderModal';
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 const API_BASE = window.location.hostname === 'localhost'
@@ -144,6 +147,9 @@ function CanvasStudio() {
 
   // MoMo Modal State
   const [isMomoModalOpen, setIsMomoModalOpen] = useState(false);
+
+  // Unlimited Duration Audio/Video Recorder State
+  const [isUnlimitedRecorderOpen, setIsUnlimitedRecorderOpen] = useState(false);
 
   // Tools & Modals State
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
@@ -1002,7 +1008,7 @@ function CanvasStudio() {
           applyCanvasPresetRatio={applyCanvasPresetRatio}
           onOpenSignatureModal={() => setIsSignatureModalOpen(true)}
           onRunOcr={handleRunOcr}
-          onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
+          onOpenVoiceRecorder={() => setIsUnlimitedRecorderOpen(true)}
           onOpenPdfMergerModal={() => setIsPdfMergerOpen(true)}
           onOpenCropModal={() => setIsCropModalOpen(true)}
           onOpenRedactionModal={() => setIsRedactionModalOpen(true)}
@@ -1213,6 +1219,14 @@ function CanvasStudio() {
         onPaySuccess={handlePaymentSuccessUnlock}
         onManagerUnlock={handleAppManagerUnlock}
         guestUserId={guestUserId}
+      />
+
+      {/* 🎙️ UNLIMITED DURATION RECORDER & AI TRANSCRIBER MODAL */}
+      <UnlimitedStudioRecorderModal
+        isOpen={isUnlimitedRecorderOpen}
+        onClose={() => setIsUnlimitedRecorderOpen(false)}
+        onInsertMediaToCanvas={handleInsertMediaAsset}
+        onInsertTranscriptToCanvas={handleInsertOcrAsDocNode}
       />
 
       {/* 4. WATERMARK ENGINE MODAL */}
